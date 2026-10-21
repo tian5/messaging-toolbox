@@ -5,6 +5,9 @@
 [![ghcr.io](https://img.shields.io/badge/ghcr.io-tian5%2Fmessaging--toolbox-blue?logo=docker)](https://github.com/tian5/messaging-toolbox/pkgs/container/messaging-toolbox)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/tian5/messaging-toolbox/blob/main/LICENSE)
 
+> **Message broker explorer for local development with .NET Aspire**, starting with the Azure
+> Service Bus emulator.
+
 **MessagingToolbox** is a Blazor Server web app to explore and manage message brokers — starting
 with Azure Service Bus namespaces and the **Azure Service Bus emulator**. It is Aspire-native (a
 NuGet hosting package plus a container image). Seamless Azure Service

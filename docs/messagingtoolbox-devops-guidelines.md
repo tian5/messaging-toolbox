@@ -52,6 +52,11 @@ implemented in `DependencyRuleTests`.
   core audience, and adding a platform later is painless when done early.
 - Tags per release: full semver, `major.minor`, immutable `sha-<commit>`, and `latest`
   (releases only). Prerelease builds get `edge` plus their `sha` tag — never `latest`.
+- The image carries OCI title/description as labels and as manifest + index annotations: ghcr.io
+  shows a multi-arch image's description only from the index annotation. Keep the wording in
+  line with the NuGet `Description` and the repo description: a local-development broker
+  explorer first, the Azure Service Bus emulator as the current focus. Tags carry the search
+  terms; descriptions stay short.
 - The hosting NuGet references the image by tag: a package built from a `v*` tag pins the image
   tag of the same version (stamped at build time from `GITHUB_REF_TYPE`/MinVer), so the semver
   tag pushed by the same run must stay `{{version}}`. Main-branch prerelease packages use `edge`.

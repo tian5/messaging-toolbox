@@ -4,8 +4,9 @@
     <PropertyGroup>
         <IsPackable>true</IsPackable>
         <PackageId>MessagingToolbox.Aspire.Hosting</PackageId>
-        <Description>.NET Aspire AppHost integration for MessagingToolbox: a Blazor explorer for message brokers, starting with Azure Service Bus namespaces and the Azure Service Bus emulator.</Description>
-        <PackageTags>aspire;integration;dotnet-aspire;azure-service-bus;messaging;queues;toolbox</PackageTags>
+        <Title>MessagingToolbox: message broker explorer for .NET Aspire</Title>
+        <Description>Message broker explorer for local development with .NET Aspire. Browse, send and manage messages from your AppHost, starting with the Azure Service Bus emulator.</Description>
+        <PackageTags>aspire;dotnet-aspire;aspire-hosting;azure-service-bus;servicebus;azure-service-bus-emulator;service-bus-emulator;servicebus-emulator;service-bus-explorer;servicebus-explorer;emulator;message-broker;broker-explorer;queue-explorer;message-explorer;dead-letter;queues;topics;messaging;local-development;devtools;blazor</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
 
