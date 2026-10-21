@@ -1,0 +1,151 @@
+@* Explorer tree: queues | topics → subscriptions, with Active/Scheduled/DLQ sub-queue child
+   nodes showing their message counts (FR-2.1/FR-2.2). *@
+<ul class="entity-tree">
+    @foreach (EntityTreeNodeDto node in Nodes)
+    {
+        @RenderNode(node)
+    }
+</ul>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<EntityTreeNodeDto> Nodes { get; set; } = [];
+
+    [Parameter]
+    public EntityTreeNodeDto? Selected { get; set; }
+
+    [Parameter]
+    public EventCallback<EntityTreeNodeDto> SelectedChanged { get; set; }
+
+    private readonly HashSet<string> _collapsedNodes = [];
+
+    private RenderFragment RenderNode(EntityTreeNodeDto node) => @<li>
+        <div class="tree-row">
+            @if (node.Children.Count > 0)
+            {
+                <button class="tree-toggle @(IsExpanded(node) ? "expanded" : null)" type="button" title="@(IsExpanded(node) ? "Collapse" : "Expand")"
+                        aria-expanded="@(IsExpanded(node) ? "true" : "false")"
+                        @onclick="() => Toggle(node)" @onclick:stopPropagation>
+                    <span class="chevron" aria-hidden="true"></span>
+                </button>
+            }
+            else
+            {
+                <span class="tree-toggle-placeholder"></span>
+            }
+            <button class="tree-item @(NodeClass(node))" type="button" title="@node.Path"
+                    @onclick="() => SelectedChanged.InvokeAsync(node)">
+                <span class="icon">@Icon(node)</span>
+                <span class="label">@node.Name</span>
+                @if (node.RequiresSession && !node.IsSubQueueNode)
+                {
+                    <span class="session-tag" title="Requires sessions: receives lock one session at a time">sessions</span>
+                }
+                <CountsBadge Node="node" />
+                @if (CountText(node) is { } count)
+                {
+                    <span class="count">@count</span>
+                }
+            </button>
+        </div>
+        @if (node.Children.Count > 0 && IsExpanded(node))
+        {
+            <ul>
+                @foreach (EntityTreeNodeDto child in node.Children)
+                {
+                    @RenderNode(child)
+                }
+            </ul>
+        }
+    </li>;
+
+    private bool IsExpanded(EntityTreeNodeDto node) => !_collapsedNodes.Contains(NodeKey(node));
+
+    private void Toggle(EntityTreeNodeDto node)
+    {
+        string key = NodeKey(node);
+        if (!_collapsedNodes.Add(key))
+        {
+            _collapsedNodes.Remove(key);
+        }
+    }
+
+    // The entity node itself carries the default sub-queue value, so the flag is part of the key —
+    // otherwise an entity and its "Active" child would share an identity and select together.
+    private static string NodeKey(EntityTreeNodeDto node)
+        => $"{node.Path}|{node.SubQueue}|{node.Kind}|{node.IsSubQueueNode}";
+
+    // Sub-queue nodes always show their count when one is available, right-aligned after the name.
+    // Counts are exact; only a sample that hit the provider's bound renders with a "+" suffix.
+    private static string? CountText(EntityTreeNodeDto node)
+    {
+        if (!node.IsSubQueueNode)
+        {
+            return null;
+        }
+
+        long? count = node.SubQueue switch
+        {
+            MessageSubQueue.Active => node.RuntimeInfo?.ActiveMessageCount,
+            MessageSubQueue.Scheduled => node.RuntimeInfo?.ScheduledMessageCount,
+            MessageSubQueue.DeadLetter => node.RuntimeInfo?.DeadLetterMessageCount,
+            _ => node.RuntimeInfo?.TransferDeadLetterMessageCount,
+        };
+
+        if (count is null)
+        {
+            return null;
+        }
+
+        return node.RuntimeInfo?.IsApproximate == true
+            ? $"{count}+"
+            : count.Value.ToString();
+    }
+
+    private string NodeClass(EntityTreeNodeDto node)
+    {
+        List<string> classes = [];
+        if (Selected is not null && NodeKey(Selected) == NodeKey(node))
+        {
+            classes.Add("selected");
+        }
+
+        if (node.IsSubQueueNode)
+        {
+            classes.Add("subqueue");
+        }
+
+        if (node.SubQueue is MessageSubQueue.DeadLetter or MessageSubQueue.TransferDeadLetter)
+        {
+            classes.Add("dlq");
+        }
+
+        if (node.Status is not MessagingEntityStatus.Unknown and not MessagingEntityStatus.Active)
+        {
+            classes.Add("disabled");
+        }
+
+        return string.Join(' ', classes);
+    }
+
+    private static string Icon(EntityTreeNodeDto node)
+    {
+        if (node.IsSubQueueNode)
+        {
+            return node.SubQueue switch
+            {
+                MessageSubQueue.Scheduled => "SCH",
+                MessageSubQueue.DeadLetter or MessageSubQueue.TransferDeadLetter => "DLQ",
+                _ => "ACT",
+            };
+        }
+
+        return node.Kind switch
+        {
+            EntityKind.Queue => "Q",
+            EntityKind.Topic => "T",
+            EntityKind.Subscription => "S",
+            _ => "?",
+        };
+    }
+}

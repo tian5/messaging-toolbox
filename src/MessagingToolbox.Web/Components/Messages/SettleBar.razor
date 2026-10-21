@@ -1,0 +1,49 @@
+@* Settlement actions for messages received for settlement (FR-5.1). *@
+<div class="settle-bar">
+    <span class="muted">@Count selected</span>
+    <button type="button" disabled="@Disabled" @onclick='() => OnSettle.InvokeAsync(new SettleAction(SettlementOperation.Complete, null, null))'>Complete</button>
+    <button type="button" disabled="@Disabled" @onclick='() => OnSettle.InvokeAsync(new SettleAction(SettlementOperation.Abandon, null, null))'>Abandon</button>
+    <button type="button" disabled="@Disabled" @onclick='() => OnSettle.InvokeAsync(new SettleAction(SettlementOperation.Defer, null, null))'>Defer</button>
+    @if (CanDeadLetter)
+    {
+        <input class="reason" placeholder="dead-letter reason" @bind="_reason" disabled="@Disabled" />
+        <input class="reason" placeholder="description (optional)" @bind="_description" disabled="@Disabled" />
+        <button type="button" class="danger" disabled="@Disabled" @onclick="DeadLetterAsync">Dead-letter</button>
+        @if (_reasonError)
+        {
+            <span class="error-inline">A reason is required to dead-letter.</span>
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int Count { get; set; }
+
+    /// <summary>Dead-letter is not offered in DLQ views — a dead-lettered message cannot be dead-lettered again.</summary>
+    [Parameter]
+    public bool CanDeadLetter { get; set; } = true;
+
+    /// <summary>True while a long-running operation holds the entity lock — settle actions stay disabled.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public EventCallback<SettleAction> OnSettle { get; set; }
+
+    private string? _reason;
+    private string? _description;
+    private bool _reasonError;
+
+    private async Task DeadLetterAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_reason))
+        {
+            _reasonError = true;
+            return;
+        }
+
+        _reasonError = false;
+        await OnSettle.InvokeAsync(new SettleAction(SettlementOperation.DeadLetter, _reason, _description));
+    }
+}

@@ -1,0 +1,34 @@
+@* Message body for reading: JSON and XML are indented by default, with a toggle back to the raw text (FR-3.3). *@
+<div class="body-view">
+    @if (CanPretty)
+    {
+        <button type="button" class="body-toggle" @onclick="() => _raw = !_raw" title="@(_raw ? "Show the body indented" : "Show the body exactly as received")">
+            @(_raw ? "Pretty" : "Raw")
+        </button>
+    }
+    <pre class="body"><code>@(CanPretty && !_raw ? _pretty : Message.Body)</code></pre>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public MessageDto Message { get; set; } = default!;
+
+    private bool _raw;
+    private string _pretty = string.Empty;
+    private MessageDto? _formatted;
+
+    private bool CanPretty => Message.BodyFormat is MessageBodyFormat.Json or MessageBodyFormat.Xml;
+
+    // Formatting is cached per message: a re-render (auto-refresh tick, lock countdown) must not
+    // re-parse a large body.
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Message, _formatted))
+        {
+            return;
+        }
+
+        _formatted = Message;
+        _pretty = CanPretty ? MessageBodyFormatter.Pretty(Message.Body, Message.BodyFormat) : Message.Body;
+    }
+}

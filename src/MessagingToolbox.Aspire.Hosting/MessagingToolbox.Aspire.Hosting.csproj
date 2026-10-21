@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- The one packable project in Phase 1 (DevOps guidelines §5); IsPackable defaults to false at the root. -->
+    <PropertyGroup>
+        <IsPackable>true</IsPackable>
+        <PackageId>MessagingToolbox.Aspire.Hosting</PackageId>
+        <Description>.NET Aspire AppHost integration for MessagingToolbox: a Blazor explorer for message brokers, starting with Azure Service Bus namespaces and the Azure Service Bus emulator.</Description>
+        <PackageTags>aspire;integration;dotnet-aspire;azure-service-bus;messaging;queues;toolbox</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Aspire.Hosting" />
+        <!-- Reads the AppHost-modeled queues/topics/subscriptions for emulator discovery (architecture doc §8). -->
+        <PackageReference Include="Aspire.Hosting.Azure.ServiceBus" />
+        <!-- Lifts Aspire's vulnerable transitive MessagePack to a patched version, for consumers too. -->
+        <PackageReference Include="MessagePack" />
+    </ItemGroup>
+
+    <!-- Pins the container image to the package version for tag builds (v* tags push both the
+         NuGet and the image tag of the same version); other builds follow `edge`. -->
+    <Target Name="StampContainerImageTag" AfterTargets="MinVer" Condition="'$(GITHUB_REF_TYPE)' == 'tag' AND '$(MinVerVersion)' != ''">
+        <ItemGroup>
+            <AssemblyMetadata Include="ContainerImageTag" Value="$(MinVerVersion)" />
+        </ItemGroup>
+    </Target>
+
+</Project>

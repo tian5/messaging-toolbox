@@ -1,0 +1,45 @@
+# PRs and main pushes: build & test only — nothing is packed or published (DevOps §4).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    uses: ./.github/workflows/_build.yml
+
+  # Real round-trips against the Service Bus emulator (Testcontainers; Docker is available on
+  # the Linux runner). A separate job so an emulator or image-pull failure is attributable and
+  # never hides the unit-test signal.
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MESSAGINGTOOLBOX_EMULATOR_TESTS: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Emulator tests
+        run: >
+          dotnet test tests/MessagingToolbox.Providers.AzureServiceBus.Tests
+          --configuration Release
+          --filter "Category=Emulator"
+          --logger "trx;LogFileName=emulator-results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-test-results
+          path: "**/emulator-results.trx"
+          retention-days: 7

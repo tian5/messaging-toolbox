@@ -1,0 +1,77 @@
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+@* Monaco-based body editor (FR-4.1) with automatic textarea fallback when the CDN is
+   unreachable (offline containers). *@
+@if (_useFallback)
+{
+    <textarea class="@FallbackClass" rows="8" @bind="Value" @bind:event="oninput"></textarea>
+}
+else
+{
+    <div class="monaco-host" @ref="_host"></div>
+}
+
+@code {
+    [Parameter]
+    public string? Value { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> ValueChanged { get; set; }
+
+    [Parameter]
+    public string? Language { get; set; }
+
+    [Parameter]
+    public string? FallbackClass { get; set; }
+
+    private ElementReference _host;
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<MonacoEditor>? _dotNetRef;
+    private bool _useFallback;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _module ??= await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/monacoInterop.js");
+        _dotNetRef = DotNetObjectReference.Create(this);
+
+        MonacoInitResult result = await _module.InvokeAsync<MonacoInitResult>("initialize", _host, Value ?? string.Empty, Language, _dotNetRef);
+        if (!result.Success)
+        {
+            _useFallback = true;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnContentChanged(string value)
+    {
+        Value = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _dotNetRef?.Dispose();
+
+        if (_module is not null && !_useFallback)
+        {
+            try
+            {
+                await _module.InvokeVoidAsync("dispose", _host);
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuit already gone.
+            }
+        }
+    }
+
+    private sealed record MonacoInitResult(bool Success);
+}

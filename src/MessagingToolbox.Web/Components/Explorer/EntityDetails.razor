@@ -1,0 +1,77 @@
+@* Details header for the selected entity: identity, status, runtime counts (FR-2.2). *@
+<div class="entity-details">
+    <h2>
+        @Node.Name
+        <span class="muted">@KindLabel</span>
+        @if (Node.Status is not MessagingEntityStatus.Unknown and not MessagingEntityStatus.Active)
+        {
+            <span class="badge warn">@Node.Status</span>
+        }
+        @if (CanWatch)
+        {
+            <button type="button" class="watch-toggle @(Watched ? "on" : null)" @onclick="ToggleWatch"
+                    title="@(Watched ? "Stop watching" : "Peek this view every few seconds and list new arrivals in the live watch panel. Nothing is locked or received.")">
+                @(Watched ? "Watching" : "Watch")
+            </button>
+        }
+    </h2>
+    <p class="muted path">@Node.Path</p>
+
+    @if (Node.RuntimeInfo is { } info)
+    {
+        <dl class="counts">
+            <div>
+                <dt>Active</dt>
+                <dd>
+                    @info.ActiveMessageCount
+                    @if (info.DeferredMessageCount is > 0)
+                    {
+                        <span class="muted" title="Deferred messages count as active but are skipped by receives">(@info.DeferredMessageCount deferred)</span>
+                    }
+                </dd>
+            </div>
+            <div><dt>Scheduled</dt><dd>@info.ScheduledMessageCount</dd></div>
+            <div><dt>Dead-letter</dt><dd>@info.DeadLetterMessageCount</dd></div>
+            <div><dt>Transfer DLQ</dt><dd>@info.TransferDeadLetterMessageCount</dd></div>
+            <div><dt>Size</dt><dd>@FormatSize(info.SizeInBytes)</dd></div>
+        </dl>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public EntityTreeNodeDto Node { get; set; } = default!;
+
+    /// <summary>The node holds messages that can be peeked, so the live watch can pin it.</summary>
+    [Parameter]
+    public bool CanWatch { get; set; }
+
+    [Parameter]
+    public bool Watched { get; set; }
+
+    [Parameter]
+    public EventCallback ToggleWatch { get; set; }
+
+    private string KindLabel => Node.IsSubQueueNode
+        ? Node.SubQueue switch
+        {
+            MessageSubQueue.Scheduled => "scheduled messages",
+            MessageSubQueue.DeadLetter => "dead-letter sub-queue",
+            MessageSubQueue.TransferDeadLetter => "transfer dead-letter sub-queue",
+            _ => "active messages",
+        }
+        : Node.Kind switch
+        {
+            EntityKind.Queue => "queue",
+            EntityKind.Topic => "topic",
+            EntityKind.Subscription => "subscription",
+            _ => "entity",
+        };
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        >= 1024 * 1024 => $"{bytes / 1024d / 1024d:0.#} MB",
+        >= 1024 => $"{bytes / 1024d:0.#} KB",
+        _ => $"{bytes} B",
+    };
+}

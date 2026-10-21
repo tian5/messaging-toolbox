@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\MessagingToolbox.Abstractions\MessagingToolbox.Abstractions.csproj" />
+        <ProjectReference Include="..\..\src\MessagingToolbox.Domain\MessagingToolbox.Domain.csproj" />
+        <ProjectReference Include="..\..\src\MessagingToolbox.Application\MessagingToolbox.Application.csproj" />
+        <ProjectReference Include="..\..\src\MessagingToolbox.Infrastructure\MessagingToolbox.Infrastructure.csproj" />
+        <ProjectReference Include="..\..\src\MessagingToolbox.Providers.AzureServiceBus\MessagingToolbox.Providers.AzureServiceBus.csproj" />
+        <ProjectReference Include="..\..\src\MessagingToolbox.Web\MessagingToolbox.Web.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="NetArchTest.Rules" />
+        <PackageReference Update="xunit.runner.visualstudio">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+</Project>

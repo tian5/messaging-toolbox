@@ -1,0 +1,81 @@
+@* Secondary message controls: property filter, sort toggle, export/import and destructive actions. *@
+<div class="peek-controls secondary">
+    <input class="search" placeholder="Filter: key=value or text" @bind="Workspace.PropertyFilter" @bind:event="oninput" />
+    <button type="button" title="Toggle sort by sequence number" @onclick="() => Workspace.SortDescending = !Workspace.SortDescending">
+        Seq @(Workspace.SortDescending ? "↓" : "↑")
+    </button>
+    <span class="spacer"></span>
+    <button type="button" @onclick="Export" disabled="@(Workspace.Selection.Count == 0)"
+            title="Export the selected messages to JSON (FR-5.4)">Export (@Workspace.Selection.Count)</button>
+    <label class="button-label" title="Import/replay messages from a JSON export (FR-5.4)">
+        Import
+        <InputFile OnChange="Import" accept=".json" disabled="@EntityBusy" />
+    </label>
+    @if (!IsScheduledNode)
+    {
+        <button type="button" class="danger" @onclick="Purge" disabled="@EntityBusy" title="Purge this sub-queue (FR-5.2)">Purge…</button>
+    }
+    @if (DeferredSelectedCount > 0)
+    {
+        <button type="button" @onclick="ReceiveDeferred" disabled="@EntityBusy"
+                title="Receive the selected deferred messages with peek-lock, so they can be completed, abandoned or dead-lettered (FR-5.1)">Receive deferred (@DeferredSelectedCount)</button>
+    }
+    @if (CanDeadLetterSelection && !IsReceiveAndDeleteLoaded)
+    {
+        <button type="button" class="danger" @onclick="DeadLetter" disabled="@(Workspace.Selection.Count == 0 || EntityBusy)"
+                title="Move the selected messages to the dead-letter queue (FR-5.1)">To DLQ (@Workspace.Selection.Count)</button>
+    }
+    @if (IsDeadLetterNode)
+    {
+        <button type="button" @onclick="Requeue" disabled="@(Workspace.Selection.Count == 0 || EntityBusy)"
+                title="Requeue the selected messages into a queue or topic of your choice (FR-4.6)">Requeue… (@Workspace.Selection.Count)</button>
+    }
+    <button type="button" class="danger" @onclick="Delete" disabled="@(Workspace.Selection.Count == 0 || IsReceiveAndDeleteLoaded || EntityBusy)"
+            title="@(IsReceiveAndDeleteLoaded ? "Messages were already deleted by receive & delete" : "Permanently delete the selected messages (FR-5.3)")">Delete (@Workspace.Selection.Count)</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public ConnectionWorkspace Workspace { get; set; } = default!;
+
+    [Parameter]
+    public bool IsScheduledNode { get; set; }
+
+    [Parameter]
+    public bool CanDeadLetterSelection { get; set; }
+
+    [Parameter]
+    public bool IsDeadLetterNode { get; set; }
+
+    [Parameter]
+    public bool IsReceiveAndDeleteLoaded { get; set; }
+
+    /// <summary>Selected peeked messages that are deferred — only a receive by sequence number gets them back.</summary>
+    [Parameter]
+    public int DeferredSelectedCount { get; set; }
+
+    /// <summary>True while a long-running operation holds the entity lock — mutating actions stay disabled.</summary>
+    [Parameter]
+    public bool EntityBusy { get; set; }
+
+    [Parameter]
+    public EventCallback Export { get; set; }
+
+    [Parameter]
+    public EventCallback<InputFileChangeEventArgs> Import { get; set; }
+
+    [Parameter]
+    public EventCallback Purge { get; set; }
+
+    [Parameter]
+    public EventCallback ReceiveDeferred { get; set; }
+
+    [Parameter]
+    public EventCallback DeadLetter { get; set; }
+
+    [Parameter]
+    public EventCallback Requeue { get; set; }
+
+    [Parameter]
+    public EventCallback Delete { get; set; }
+}

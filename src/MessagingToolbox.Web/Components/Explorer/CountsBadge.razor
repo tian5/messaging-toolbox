@@ -1,0 +1,10 @@
+@* Badges an entity when its dead-letter count is non-zero (FR-2.3). *@
+@if (!Node.IsSubQueueNode && Node.RuntimeInfo is { DeadLetterMessageCount: > 0 } info)
+{
+    <span class="badge dlq" title="@info.DeadLetterMessageCount dead-lettered message(s)">@info.DeadLetterMessageCount</span>
+}
+
+@code {
+    [Parameter]
+    public EntityTreeNodeDto Node { get; set; } = default!;
+}

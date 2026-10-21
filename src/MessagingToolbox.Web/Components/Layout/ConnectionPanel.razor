@@ -1,0 +1,148 @@
+@inherits ToolboxComponentBase
+@inject ILogger<ConnectionPanel> Logger
+@inject NotificationService Notifications
+
+@* Connection list with saved-connection management (FR-1.1) and test action (arch: TestConnection). *@
+<div class="connection-panel">
+    <div class="panel-header">
+        <h2>Connections</h2>
+        <button type="button" title="Add a saved connection" @onclick="ToggleEditor">@(_showEditor ? "−" : "+")</button>
+    </div>
+
+    @if (_showEditor)
+    {
+        <ConnectionEditor OnSaved="OnEditorSaved" OnCancel="() => _showEditor = false" />
+    }
+
+    @if (Connections is null)
+    {
+        <p class="hint">Loading…</p>
+    }
+    else if (Connections.Count == 0)
+    {
+        <p class="hint">
+            No connections configured. Under Aspire they appear automatically; add one above or set
+            <code>ToolboxOptions__Connections__0__Name</code> and <code>ConnectionStrings__&lt;name&gt;</code>.
+        </p>
+    }
+    else
+    {
+        <ul>
+            @foreach (ConnectionDto connection in Connections)
+            {
+                <li>
+                    <div class="connection-row @(Selected?.Id == connection.Id ? "selected" : null)">
+                        <button class="connection" @onclick="() => SelectedChanged.InvokeAsync(connection)">
+                            <span class="name">@connection.DisplayName</span>
+                            @if (connection.Source == ConnectionSource.Saved)
+                            {
+                                <span class="badge" title="Saved in the toolbox database.">saved</span>
+                            }
+                            @if (connection.Capabilities is null)
+                            {
+                                <span class="badge warn" title="The provider could not be resolved — check the connection string.">unavailable</span>
+                            }
+                            else if (!connection.Capabilities.CanManageEntities)
+                            {
+                                <span class="badge" title="@(connection.Capabilities.ManagementUnavailableReason ?? "This connection exposes the data plane only; entity management is unavailable.")">data-plane only</span>
+                            }
+                        </button>
+                        <span class="connection-actions">
+                            <button type="button" title="@TestTitle(connection)"
+                                    class="test @(TestClass(connection))"
+                                    @onclick="() => TestAsync(connection)">T</button>
+                            @if (connection.Source == ConnectionSource.Saved)
+                            {
+                                <button type="button" title="Delete saved connection" class="test"
+                                        @onclick="() => AskDelete(connection)">✕</button>
+                            }
+                        </span>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+
+    <ConfirmDialog Visible="_deleteCandidate is not null"
+                   Title="Delete connection"
+                   Message="@($"Delete saved connection '{_deleteCandidate?.DisplayName}'? This removes it from the toolbox database.")"
+                   ConfirmLabel="Delete"
+                   OnConfirm="DeleteConfirmedAsync"
+                   OnCancel="() => _deleteCandidate = null" />
+</div>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<ConnectionDto>? Connections { get; set; }
+
+    [Parameter]
+    public ConnectionDto? Selected { get; set; }
+
+    [Parameter]
+    public EventCallback<ConnectionDto> SelectedChanged { get; set; }
+
+    private readonly Dictionary<Guid, TestConnectionResultDto> _testResults = [];
+    private bool _showEditor;
+    private ConnectionDto? _deleteCandidate;
+
+    private void ToggleEditor() => _showEditor = !_showEditor;
+
+    private void OnEditorSaved()
+    {
+        _showEditor = false;
+    }
+
+    private async Task TestAsync(ConnectionDto connection)
+    {
+        _testResults.Remove(connection.Id);
+
+        try
+        {
+            _testResults[connection.Id] = await Mediator.Send(new TestConnectionQuery(connection.Id));
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Logger.LogWarning(exception, "Testing connection {Connection} failed", connection.DisplayName);
+            _testResults[connection.Id] = new TestConnectionResultDto(false, exception.Message, null);
+        }
+    }
+
+    private string TestClass(ConnectionDto connection)
+        => !_testResults.TryGetValue(connection.Id, out TestConnectionResultDto? result)
+            ? string.Empty
+            : result.Success ? "ok" : "fail";
+
+    private string TestTitle(ConnectionDto connection)
+    {
+        if (!_testResults.TryGetValue(connection.Id, out TestConnectionResultDto? result))
+        {
+            return "Test connection";
+        }
+
+        return result.Success
+            ? $"OK ({result.Latency?.TotalMilliseconds:0} ms)"
+            : $"Failed: {result.Error}";
+    }
+
+    private void AskDelete(ConnectionDto connection) => _deleteCandidate = connection;
+
+    private async Task DeleteConfirmedAsync()
+    {
+        if (_deleteCandidate is not { } candidate)
+        {
+            return;
+        }
+
+        _deleteCandidate = null;
+
+        try
+        {
+            await Mediator.Send(new DeleteConnectionCommand(candidate.Id));
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Logger.LogWarning(exception, "Deleting connection {Connection} failed", candidate.DisplayName);
+            Notifications.Notify($"Deleting connection '{candidate.DisplayName}' failed: {exception.Message}");
+        }
+    }
+}

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\MessagingToolbox.Providers.AzureServiceBus\MessagingToolbox.Providers.AzureServiceBus.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Real AMQP round-trips run against the emulator container in the CI integration job. -->
+        <PackageReference Include="Testcontainers" />
+        <PackageReference Include="NSubstitute" />
+        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+        <PackageReference Update="xunit.runner.visualstudio">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+</Project>

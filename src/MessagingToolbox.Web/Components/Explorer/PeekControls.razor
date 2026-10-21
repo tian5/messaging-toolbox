@@ -1,0 +1,66 @@
+@* Primary load controls: load mode, max messages, from sequence and the Load button (FR-3.2). *@
+<div class="peek-controls">
+    <select @bind="Workspace.ViewMode" title="Load mode (FR-3.2)" disabled="@IsScheduledNode">
+        <option value="@MessageLoadMode.Peek">Peek</option>
+        <option value="@MessageLoadMode.Settleable">Receive (settle later)</option>
+        <option value="@MessageLoadMode.ReceiveAndDelete">Receive &amp; delete</option>
+    </select>
+    <label title="How many messages to fetch; the provider pages through the broker (max 5000)">Max <InputNumber @bind-Value="Workspace.MaxMessages" min="1" max="5000" /></label>
+    @if (Workspace.ViewMode == MessageLoadMode.Peek)
+    {
+        <label>From seq <InputNumber @bind-Value="Workspace.FromSequence" /></label>
+    }
+    @if (ShowSessionFilter)
+    {
+        <label title="Only this session's messages; blank = all sessions. Peek filters without locking anything; a receive locks just this session (active sub-queue only).">
+            Session <input class="session-filter" list="loaded-session-ids" placeholder="all" @bind="Workspace.SessionId" />
+        </label>
+        <datalist id="loaded-session-ids">
+            @foreach (string sessionId in Workspace.LoadedSessionIds)
+            {
+                <option value="@sessionId"></option>
+            }
+        </datalist>
+    }
+    @if (Workspace.ViewMode == MessageLoadMode.Settleable)
+    {
+        <label title="Locks are renewed in the background for this long after the receive; entity lock duration applies when 0 (max 300 s)">Renew locks (s) <InputNumber @bind-Value="Workspace.LockRenewalSeconds" min="0" max="300" /></label>
+        @if (Workspace.LockRenewalCount > 0)
+        {
+            <span class="muted" title="Held locks were renewed in the background since this load; countdowns show the renewed expiry">🔒 renewed ×@Workspace.LockRenewalCount</span>
+        }
+    }
+    <button @onclick="Load" disabled="@(EntityLoading || EntityBusy)">
+        @(EntityLoading ? "Loading…" : "Load")
+    </button>
+    <span class="muted">@SubQueueLabel</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public ConnectionWorkspace Workspace { get; set; } = default!;
+
+    [Parameter]
+    public bool IsScheduledNode { get; set; }
+
+    /// <summary>The selected entity requires sessions — the session filter is always offered.</summary>
+    [Parameter]
+    public bool RequiresSession { get; set; }
+
+    private bool ShowSessionFilter
+        => RequiresSession || !string.IsNullOrEmpty(Workspace.SessionId) || Workspace.LoadedSessionIds.Count > 0;
+
+    [Parameter]
+    public string SubQueueLabel { get; set; } = string.Empty;
+
+    /// <summary>True while a long-running operation holds the entity lock — Load stays disabled.</summary>
+    [Parameter]
+    public bool EntityBusy { get; set; }
+
+    /// <summary>True while messages for the selected entity are being fetched.</summary>
+    [Parameter]
+    public bool EntityLoading { get; set; }
+
+    [Parameter]
+    public EventCallback Load { get; set; }
+}

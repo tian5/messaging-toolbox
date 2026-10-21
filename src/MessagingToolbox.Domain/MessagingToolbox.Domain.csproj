@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Description>Broker-agnostic domain model of MessagingToolbox (persisted tool state; no framework dependencies).</Description>
+    </PropertyGroup>
+
+    <!-- Abstractions is a zero-dependency contract assembly; Domain references it for ProviderKind only. -->
+    <ItemGroup>
+        <ProjectReference Include="..\MessagingToolbox.Abstractions\MessagingToolbox.Abstractions.csproj" />
+    </ItemGroup>
+
+</Project>

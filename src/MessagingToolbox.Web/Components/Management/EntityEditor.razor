@@ -1,0 +1,522 @@
+@* Entity management: create/edit queues, topics, and subscriptions; delete existing entities.
+   Only renders actionable UI when the active connection declares CanManageEntities (FR-6). *@
+@inherits ToolboxComponentBase
+
+<div class="entity-editor">
+    @if (CanManage)
+    {
+        <button type="button" @onclick="() => StartCreate(EntityKind.Queue)">New queue…</button>
+        <button type="button" @onclick="() => StartCreate(EntityKind.Topic)">New topic…</button>
+        <button type="button" @onclick="() => StartCreate(EntityKind.Subscription)">New subscription…</button>
+        <button type="button" @onclick="StartEdit">Edit entity…</button>
+        <button type="button" class="danger" @onclick="StartDelete">Delete entity…</button>
+    }
+</div>
+
+@if (_showEditor)
+{
+    <div class="confirm-overlay">
+        <div class="confirm-dialog entity-editor-dialog" role="dialog" aria-modal="true">
+            <h3>@EditorTitle</h3>
+
+            <div class="entity-form">
+                <label>
+                    Kind
+                    <input type="text" value="@_form.Kind" disabled="disabled" />
+                </label>
+
+                @if (_form.Kind == EntityKind.Subscription)
+                {
+                    <label>
+                        Topic
+                        <select @bind="_form.ParentTopic">
+                            <option value="">— select topic —</option>
+                            @foreach (EntityTreeNodeDto topic in Topics())
+                            {
+                                <option value="@topic.Path">@topic.Name</option>
+                            }
+                        </select>
+                    </label>
+
+                    <label>
+                        Subscription name
+                        <input type="text" @bind="_form.Name" />
+                    </label>
+                }
+                else
+                {
+                    <label>
+                        Name
+                        <input type="text" @bind="_form.Name" />
+                    </label>
+                }
+
+                @if (_form.Kind is EntityKind.Queue or EntityKind.Subscription)
+                {
+                    <label>
+                        Lock duration
+                        <input type="text" @bind="_form.LockDuration" placeholder="hh:mm:ss" />
+                    </label>
+                }
+
+                <label>
+                    Default message TTL
+                    <input type="text" @bind="_form.DefaultMessageTimeToLive" placeholder="hh:mm:ss" />
+                </label>
+
+                <label>
+                    Max size (MB)
+                    <input type="number" @bind="_form.MaxSizeInMegabytes" />
+                </label>
+
+                @if (_form.Kind is EntityKind.Queue or EntityKind.Subscription)
+                {
+                    <label class="checkbox-row">
+                        <input type="checkbox" @bind="_form.RequiresSession" disabled="@_isEdit" />
+                        Requires session
+                    </label>
+                }
+
+                <label class="checkbox-row">
+                    <input type="checkbox" @bind="_form.EnableDeadLetteringOnMessageExpiration" />
+                    Dead-letter on expiration
+                </label>
+
+                <label>
+                    Forward to
+                    <input type="text" @bind="_form.ForwardTo" placeholder="queue or topic name" />
+                </label>
+
+                <label>
+                    Auto-delete on idle
+                    <input type="text" @bind="_form.AutoDeleteOnIdle" placeholder="hh:mm:ss" />
+                </label>
+
+                @if (_form.Kind is EntityKind.Queue or EntityKind.Topic)
+                {
+                    <label class="checkbox-row">
+                        <input type="checkbox" @bind="_form.EnablePartitioning" disabled="@_isEdit" />
+                        Enable partitioning
+                    </label>
+
+                    <label>
+                        Duplicate detection window
+                        <input type="text" @bind="_form.DuplicateDetectionHistoryTimeWindow" placeholder="hh:mm:ss" />
+                    </label>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="error-bar">@_error</div>
+            }
+
+            <div class="confirm-actions">
+                <button class="primary" @onclick="SaveAsync" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+                <button @onclick="CloseEditor" disabled="@_saving">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showEntityPicker)
+{
+    <div class="confirm-overlay">
+        <div class="confirm-dialog" role="dialog" aria-modal="true">
+            <h3>@_pickerTitle</h3>
+            <p class="hint">@_pickerDescription</p>
+            <select class="entity-picker" @bind="_selectedEntityPath">
+                <option value="">— select entity —</option>
+                @foreach (EntityTreeNodeDto entity in Entities.Where(entity => !entity.IsSubQueueNode))
+                {
+                    <option value="@entity.Path">@EntityDisplayName(entity)</option>
+                }
+            </select>
+
+            @if (!string.IsNullOrEmpty(_pickerError))
+            {
+                <div class="error-bar">@_pickerError</div>
+            }
+
+            <div class="confirm-actions">
+                <button class="primary" @onclick="PickerConfirmAsync" disabled="@string.IsNullOrEmpty(_selectedEntityPath)">@_pickerConfirmLabel</button>
+                <button @onclick="ClosePicker">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+<ConfirmDialog Visible="_showDeleteConfirm"
+               Title="Delete entity"
+               Message="@_deleteMessage"
+               ConfirmLabel="Delete"
+               OnConfirm="DeleteConfirmedAsync"
+               OnCancel="() => _showDeleteConfirm = false" />
+
+@code {
+    [Parameter]
+    public Guid ConnectionId { get; set; }
+
+    [Parameter]
+    public ProviderCapabilities? Capabilities { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<EntityTreeNodeDto> Entities { get; set; } = [];
+
+    private readonly CancellationTokenSource _disposalTokenSource = new();
+    private readonly EntityFormModel _form = new();
+
+    private bool _showEditor;
+    private bool _isEdit;
+    private bool _saving;
+    private string? _error;
+
+    private bool _showEntityPicker;
+    private string? _pickerTitle;
+    private string? _pickerDescription;
+    private string? _pickerConfirmLabel;
+    private Func<Task>? _pickerConfirmAction;
+    private string? _pickerError;
+    private string _selectedEntityPath = string.Empty;
+
+    private bool _showDeleteConfirm;
+    private string _deleteMessage = string.Empty;
+
+    private bool CanManage => Capabilities?.CanManageEntities == true;
+
+    private string EditorTitle => _isEdit ? $"Edit {_form.Kind}" : $"New {_form.Kind}";
+
+    private IEnumerable<EntityTreeNodeDto> Topics() => Entities.Where(entity => entity.Kind == EntityKind.Topic && !entity.IsSubQueueNode);
+
+    private void StartCreate(EntityKind kind)
+    {
+        _isEdit = false;
+        _form.Reset(kind);
+        _error = null;
+        _showEditor = true;
+    }
+
+    private void StartEdit()
+    {
+        _pickerTitle = "Edit entity";
+        _pickerDescription = "Choose an existing queue, topic, or subscription to edit.";
+        _pickerConfirmLabel = "Edit";
+        _pickerError = null;
+        _selectedEntityPath = string.Empty;
+        _pickerConfirmAction = LoadEntityForEditAsync;
+        _showEntityPicker = true;
+    }
+
+    private void StartDelete()
+    {
+        _pickerTitle = "Delete entity";
+        _pickerDescription = "Choose an existing queue, topic, or subscription to delete.";
+        _pickerConfirmLabel = "Choose";
+        _pickerError = null;
+        _selectedEntityPath = string.Empty;
+        _pickerConfirmAction = ConfirmDeleteAsync;
+        _showEntityPicker = true;
+    }
+
+    private async Task PickerConfirmAsync()
+    {
+        if (_pickerConfirmAction is not null)
+        {
+            await _pickerConfirmAction();
+        }
+    }
+
+    private void ClosePicker()
+    {
+        _showEntityPicker = false;
+        _pickerConfirmAction = null;
+        _selectedEntityPath = string.Empty;
+    }
+
+    private async Task LoadEntityForEditAsync()
+    {
+        if (string.IsNullOrEmpty(_selectedEntityPath))
+        {
+            return;
+        }
+
+        _pickerError = null;
+
+        try
+        {
+            EntityDefinitionDto definition = await Mediator.Send(
+                new GetEntityDefinitionQuery(ConnectionId, _selectedEntityPath),
+                _disposalTokenSource.Token);
+
+            _isEdit = true;
+            ApplyDefinition(definition);
+            _error = null;
+            _showEntityPicker = false;
+            _showEditor = true;
+        }
+        catch (Exception exception)
+        {
+            _pickerError = exception.Message;
+        }
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (string.IsNullOrEmpty(_selectedEntityPath))
+        {
+            return;
+        }
+
+        _deleteMessage = $"Permanently delete {_selectedEntityPath}? This cannot be undone.";
+        _showEntityPicker = false;
+        _showDeleteConfirm = true;
+    }
+
+    private async Task DeleteConfirmedAsync()
+    {
+        _showDeleteConfirm = false;
+
+        try
+        {
+            await Mediator.Send(
+                new DeleteEntityCommand(ConnectionId, _selectedEntityPath),
+                _disposalTokenSource.Token);
+
+            _selectedEntityPath = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            _pickerError = exception.Message;
+            _showEntityPicker = true;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (!ValidateForm())
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+
+        try
+        {
+            string path = BuildPath();
+            string? parentPath = _form.Kind == EntityKind.Subscription ? _form.ParentTopic : null;
+            Dictionary<string, object?> options = BuildOptions();
+
+            await Mediator.Send(
+                new CreateOrUpdateEntityCommand(ConnectionId, path, _form.Kind, parentPath, options),
+                _disposalTokenSource.Token);
+
+            CloseEditor();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private bool ValidateForm()
+    {
+        if (string.IsNullOrWhiteSpace(_form.Name))
+        {
+            _error = "Name is required.";
+            return false;
+        }
+
+        if (_form.Kind == EntityKind.Subscription && string.IsNullOrWhiteSpace(_form.ParentTopic))
+        {
+            _error = "Parent topic is required for a subscription.";
+            return false;
+        }
+
+        _error = null;
+        return true;
+    }
+
+    private string BuildPath()
+    {
+        string name = _form.Name.Trim();
+        return _form.Kind == EntityKind.Subscription
+            ? $"{_form.ParentTopic!.Trim()}/subscriptions/{name}"
+            : name;
+    }
+
+    private Dictionary<string, object?> BuildOptions()
+    {
+        Dictionary<string, object?> options = new(StringComparer.Ordinal);
+
+        if (!string.IsNullOrWhiteSpace(_form.LockDuration)
+            && TimeSpan.TryParse(_form.LockDuration, out TimeSpan lockDuration))
+        {
+            options["LockDuration"] = lockDuration;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_form.DefaultMessageTimeToLive)
+            && TimeSpan.TryParse(_form.DefaultMessageTimeToLive, out TimeSpan ttl))
+        {
+            options["DefaultMessageTimeToLive"] = ttl;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_form.MaxSizeInMegabytes)
+            && long.TryParse(_form.MaxSizeInMegabytes, out long maxSize))
+        {
+            options["MaxSizeInMegabytes"] = maxSize;
+        }
+
+        if (_form.Kind is EntityKind.Queue or EntityKind.Subscription)
+        {
+            options["RequiresSession"] = _form.RequiresSession;
+        }
+
+        options["EnableDeadLetteringOnMessageExpiration"] = _form.EnableDeadLetteringOnMessageExpiration;
+
+        if (!string.IsNullOrWhiteSpace(_form.ForwardTo))
+        {
+            options["ForwardTo"] = _form.ForwardTo.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(_form.AutoDeleteOnIdle)
+            && TimeSpan.TryParse(_form.AutoDeleteOnIdle, out TimeSpan autoDelete))
+        {
+            options["AutoDeleteOnIdle"] = autoDelete;
+        }
+
+        if (_form.Kind is EntityKind.Queue or EntityKind.Topic)
+        {
+            options["EnablePartitioning"] = _form.EnablePartitioning;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_form.DuplicateDetectionHistoryTimeWindow)
+            && TimeSpan.TryParse(_form.DuplicateDetectionHistoryTimeWindow, out TimeSpan duplicateWindow))
+        {
+            options["DuplicateDetectionHistoryTimeWindow"] = duplicateWindow;
+        }
+
+        return options;
+    }
+
+    private void ApplyDefinition(EntityDefinitionDto definition)
+    {
+        _form.Kind = definition.Kind;
+
+        if (definition.Kind == EntityKind.Subscription)
+        {
+            (string? topic, string subscription) = SplitSubscriptionPath(definition.Path);
+            _form.Name = subscription;
+            _form.ParentTopic = topic ?? definition.ParentPath;
+        }
+        else
+        {
+            _form.Name = definition.Path;
+            _form.ParentTopic = null;
+        }
+
+        _form.LockDuration = FormatTimeSpan(definition.Options.GetValueOrDefault("LockDuration"));
+        _form.DefaultMessageTimeToLive = FormatTimeSpan(definition.Options.GetValueOrDefault("DefaultMessageTimeToLive"));
+        _form.MaxSizeInMegabytes = FormatLong(definition.Options.GetValueOrDefault("MaxSizeInMegabytes"));
+        _form.RequiresSession = GetBool(definition.Options.GetValueOrDefault("RequiresSession"));
+        _form.EnableDeadLetteringOnMessageExpiration = GetBool(definition.Options.GetValueOrDefault("EnableDeadLetteringOnMessageExpiration"));
+        _form.ForwardTo = definition.Options.GetValueOrDefault("ForwardTo")?.ToString() ?? string.Empty;
+        _form.AutoDeleteOnIdle = FormatTimeSpan(definition.Options.GetValueOrDefault("AutoDeleteOnIdle"));
+        _form.EnablePartitioning = GetBool(definition.Options.GetValueOrDefault("EnablePartitioning"));
+        _form.DuplicateDetectionHistoryTimeWindow = FormatTimeSpan(definition.Options.GetValueOrDefault("DuplicateDetectionHistoryTimeWindow"));
+    }
+
+    private void CloseEditor()
+    {
+        _showEditor = false;
+        _isEdit = false;
+        _error = null;
+    }
+
+    private static string EntityDisplayName(EntityTreeNodeDto entity)
+    {
+        if (entity.Kind == EntityKind.Subscription)
+        {
+            (string? topic, string subscription) = SplitSubscriptionPath(entity.Path);
+            return $"{topic} / subscriptions / {subscription}";
+        }
+
+        return entity.Path;
+    }
+
+    private static (string? Topic, string Subscription) SplitSubscriptionPath(string path)
+    {
+        const string separator = "/subscriptions/";
+        int index = path.IndexOf(separator, StringComparison.Ordinal);
+        if (index < 0)
+        {
+            return (null, path);
+        }
+
+        return (path[..index], path[(index + separator.Length)..]);
+    }
+
+    private static string FormatTimeSpan(object? value) => value switch
+    {
+        TimeSpan timeSpan => timeSpan.ToString(),
+        string s when TimeSpan.TryParse(s, out TimeSpan parsed) => parsed.ToString(),
+        _ => string.Empty,
+    };
+
+    private static string FormatLong(object? value) => value switch
+    {
+        long l => l.ToString(),
+        int i => i.ToString(),
+        string s when long.TryParse(s, out long parsed) => parsed.ToString(),
+        _ => string.Empty,
+    };
+
+    private static bool GetBool(object? value) => value is true;
+
+    private sealed class EntityFormModel
+    {
+        public EntityKind Kind { get; set; }
+
+        public string Name { get; set; } = string.Empty;
+
+        public string? ParentTopic { get; set; }
+
+        public string LockDuration { get; set; } = string.Empty;
+
+        public string DefaultMessageTimeToLive { get; set; } = string.Empty;
+
+        public string MaxSizeInMegabytes { get; set; } = string.Empty;
+
+        public bool RequiresSession { get; set; }
+
+        public bool EnableDeadLetteringOnMessageExpiration { get; set; }
+
+        public string ForwardTo { get; set; } = string.Empty;
+
+        public string AutoDeleteOnIdle { get; set; } = string.Empty;
+
+        public bool EnablePartitioning { get; set; }
+
+        public string DuplicateDetectionHistoryTimeWindow { get; set; } = string.Empty;
+
+        public void Reset(EntityKind kind)
+        {
+            Kind = kind;
+            Name = string.Empty;
+            ParentTopic = null;
+            LockDuration = string.Empty;
+            DefaultMessageTimeToLive = string.Empty;
+            MaxSizeInMegabytes = string.Empty;
+            RequiresSession = false;
+            EnableDeadLetteringOnMessageExpiration = false;
+            ForwardTo = string.Empty;
+            AutoDeleteOnIdle = string.Empty;
+            EnablePartitioning = false;
+            DuplicateDetectionHistoryTimeWindow = string.Empty;
+        }
+    }
+}

@@ -1,0 +1,44 @@
+<Project>
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <!-- Only MessagingToolbox.Aspire.Hosting opts into packing (see its csproj). -->
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <!-- CI builds treat warnings as errors; local builds stay warning-tolerant while scaffolding. -->
+    <PropertyGroup Condition="'$(CI)' == 'true'">
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    </PropertyGroup>
+
+    <!-- Shared package metadata — nuget.org surfaces all of these (DevOps guidelines §5). -->
+    <PropertyGroup>
+        <Product>MessagingToolbox</Product>
+        <Authors>tian5</Authors>
+        <Company>tian5</Company>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+        <RepositoryUrl>https://github.com/tian5/messaging-toolbox</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageProjectUrl>https://github.com/tian5/messaging-toolbox</PackageProjectUrl>
+        <!-- TODO: add PackageIcon once the project has a logo. -->
+    </PropertyGroup>
+
+    <!-- Tag-driven versioning: v* git tags are the single source of truth, MinVer derives
+         prerelease versions from tag height on main (DevOps guidelines §6). -->
+    <PropertyGroup>
+        <MinVerTagPrefix>v</MinVerTagPrefix>
+        <!-- Builds before the first tag start at 0.1 instead of 0.0.0, and untagged builds are
+             labelled `preview` rather than `alpha` (e.g. 0.1.0-preview.0.N). -->
+        <MinVerMinimumMajorMinor>0.1</MinVerMinimumMajorMinor>
+        <MinVerDefaultPreReleaseIdentifiers>preview.0</MinVerDefaultPreReleaseIdentifiers>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="MinVer" PrivateAssets="all" />
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,45 @@
+@inherits ToolboxComponentBase
+@implements IDisposable
+@inject AuditEntriesStore AuditStore
+
+@* In-app audit panel (NFR-3): the latest destructive operations, refreshed after each one. *@
+<div class="audit-panel">
+    <button type="button" class="audit-toggle" @onclick="() => _expanded = !_expanded">
+        @(_expanded ? "▾" : "▸") Activity
+    </button>
+
+    @if (_expanded)
+    {
+        @if (AuditStore.Entries.Count == 0)
+        {
+            <p class="hint">No operations yet.</p>
+        }
+        else
+        {
+            <ul class="audit-list">
+                @foreach (AuditEntryDto entry in AuditStore.Entries)
+                {
+                    <li title="@entry.Details">
+                        <span class="muted">@entry.CreatedAt.ToString("MM-dd HH:mm")</span>
+                        <span class="action">@entry.Action</span>
+                        <span class="target">@entry.EntityPath</span>
+                    </li>
+                }
+            </ul>
+        }
+    }
+</div>
+
+@code {
+    private bool _expanded;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuditStore.Changed += OnChanged;
+        await AuditStore.EnsureLoadedAsync();
+    }
+
+    private Task OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => AuditStore.Changed -= OnChanged;
+}

@@ -1,0 +1,12 @@
+# Keep the build context small and the restore layer cacheable (DevOps guidelines §2).
+**/bin/
+**/obj/
+tests/
+.git/
+.github/
+.vs/
+.vscode/
+.idea/
+docs/
+artifacts/
+*.md

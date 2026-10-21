@@ -1,0 +1,106 @@
+@* Full message view: body with format hint, system properties, application properties (FR-3.3). *@
+@if (Message is not null)
+{
+    <div class="message-detail">
+        <h3>
+            Message
+            <span class="badge">@Message.BodyFormat.ToString().ToLowerInvariant()</span>
+            @if (Message.ContentType is not null)
+            {
+                <span class="badge">@Message.ContentType</span>
+            }
+            @if (Message.LockToken is not null)
+            {
+                <span class="badge" title="Received for settlement; settlement available until the lock expires.">settleable</span>
+            }
+        </h3>
+
+        <div class="detail-actions">
+            <button type="button" title="Send an exact copy of this message to the current entity (FR-4.5)"
+                    disabled="@Busy" @onclick="() => OnSendCopy.InvokeAsync(Message)">Send copy</button>
+            @if (ShowRepair)
+            {
+                <button type="button" title="Load into the composer to edit before resubmitting (FR-4.6)"
+                        @onclick="() => OnRepair.InvokeAsync(Message)">Repair &amp; resubmit</button>
+            }
+        </div>
+
+        @if (Message.DeadLetterReason is not null || Message.DeadLetterErrorDescription is not null)
+        {
+            <div class="dlq-reason">
+                <strong>@(Message.DeadLetterReason ?? "Dead-lettered")</strong>
+                @if (Message.DeadLetterErrorDescription is not null)
+                {
+                    <span>@Message.DeadLetterErrorDescription</span>
+                }
+            </div>
+        }
+
+        <h4>Body</h4>
+        <MessageBody Message="Message" />
+
+        <h4>System properties</h4>
+        <dl class="props">
+            @foreach ((string key, string? value) in SystemProperties())
+            {
+                <div><dt>@key</dt><dd>@(value ?? "—")</dd></div>
+            }
+        </dl>
+
+        <h4>Application properties</h4>
+        @if (Message.ApplicationProperties.Count == 0)
+        {
+            <p class="hint">None</p>
+        }
+        else
+        {
+            <dl class="props">
+                @foreach (KeyValuePair<string, object?> property in Message.ApplicationProperties)
+                {
+                    <div><dt>@property.Key</dt><dd>@(property.Value?.ToString() ?? "—")</dd></div>
+                }
+            </dl>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public MessageDto? Message { get; set; }
+
+    /// <summary>Repair &amp; resubmit is a dead-letter workflow (FR-4.6) — only shown for DLQ messages.</summary>
+    [Parameter]
+    public bool ShowRepair { get; set; }
+
+    /// <summary>True while a long-running operation holds the entity lock — Send copy stays disabled.</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public EventCallback<MessageDto> OnSendCopy { get; set; }
+
+    [Parameter]
+    public EventCallback<MessageDto> OnRepair { get; set; }
+
+    private IEnumerable<(string Key, string? Value)> SystemProperties()
+    {
+        if (Message is null)
+        {
+            yield break;
+        }
+
+        yield return ("MessageId", Message.MessageId);
+        yield return ("CorrelationId", Message.CorrelationId);
+        yield return ("SessionId", Message.SessionId);
+        yield return ("Subject", Message.Subject);
+        yield return ("To", Message.To);
+        yield return ("ReplyTo", Message.ReplyTo);
+        yield return ("ContentType", Message.ContentType);
+        yield return ("SequenceNumber", Message.SequenceNumber?.ToString());
+        yield return ("DeliveryCount", Message.DeliveryCount.ToString());
+        yield return ("EnqueuedTime", Message.EnqueuedTime?.ToString("u"));
+        yield return ("ExpiresAt", Message.ExpiresAt?.ToString("u"));
+        yield return ("DeadLetterReason", Message.DeadLetterReason);
+        yield return ("DeadLetterErrorDescription", Message.DeadLetterErrorDescription);
+    }
+}

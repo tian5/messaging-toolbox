@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <Sdk Name="Aspire.AppHost.Sdk" Version="13.6.1" />
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <IsAspireHost>true</IsAspireHost>
+        <!-- The AppHost runs via `dotnet run` in this repo; the optional Aspire CLI bundle is not needed. -->
+        <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Aspire.Hosting.AppHost" />
+        <PackageReference Include="Aspire.Hosting.Azure.ServiceBus" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- A plain library reference (hosting integration code), not an orchestrated project resource. -->
+        <ProjectReference Include="..\MessagingToolbox.Aspire.Hosting\MessagingToolbox.Aspire.Hosting.csproj" IsAspireProjectResource="false" />
+        <!-- The Web host, run as a project resource when debugging from source (Toolbox:RunFromSource). -->
+        <ProjectReference Include="..\MessagingToolbox.Web\MessagingToolbox.Web.csproj" />
+    </ItemGroup>
+
+</Project>

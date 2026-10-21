@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        Public provider contract surface (DevOps decision #3): physically isolated so community
+        providers can target it. Not published yet — flipping IsPackable later is a one-line
+        change; versioned in lockstep with the hosting package via MinVer.
+    -->
+    <PropertyGroup>
+        <Description>Public provider contracts and the broker-agnostic messaging model of MessagingToolbox.</Description>
+    </PropertyGroup>
+
+</Project>

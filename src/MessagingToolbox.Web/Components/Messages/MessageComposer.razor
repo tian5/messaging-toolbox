@@ -1,0 +1,131 @@
+@inherits ToolboxComponentBase
+
+@* Composer (FR-4.1/4.2/4.4): Monaco body editor, system properties, batch + scheduled send,
+   templating with preview, canned save. In repair mode it resubmits an edited copy with
+   explicit clone semantics (FR-4.6). *@
+<div class="composer">
+    <h3>
+        @if (IsRepair)
+        {
+            <span>Repair &amp; resubmit</span>
+        }
+        else
+        {
+            <span>Send message</span>
+        }
+    </h3>
+
+    <label for="composer-target">Target</label>
+    <input id="composer-target" @bind="Draft.TargetPath" />
+    @if (FanOutWarning?.Invoke(TargetPath) is { } fanOut)
+    {
+        <p class="hint warn">@fanOut</p>
+    }
+
+    <label>Body</label>
+    <MonacoEditor @bind-Value="Draft.Body" Language="@EditorLanguage" FallbackClass="composer-body" />
+
+    <label for="composer-content-type">Content type</label>
+    <input id="composer-content-type" @bind="Draft.ContentType" placeholder="application/json" />
+
+    <div class="props-header">
+        <label>Application properties</label>
+        <button type="button" @onclick="AddProperty">+ Add</button>
+    </div>
+    @foreach (ComposerPropertyRow row in Draft.Properties)
+    {
+        <div class="prop-row">
+            <input placeholder="key" @bind="row.Key" />
+            <input placeholder="@ValuePlaceholder(row.Type)" @bind="row.Value"
+                   class="@(ApplicationPropertyValues.IsValidLiteral(row.Value, row.Type) ? null : "invalid")" />
+            <select @bind="row.Type" title="Value type the property is sent with">
+                @foreach (PropertyValueType type in Enum.GetValues<PropertyValueType>())
+                {
+                    <option value="@type">@type</option>
+                }
+            </select>
+            <button type="button" title="Remove" @onclick="() => Draft.Properties.Remove(row)">✕</button>
+        </div>
+    }
+
+    <button type="button" class="section-toggle" @onclick="() => Draft.ShowSystemProperties = !Draft.ShowSystemProperties">
+        @(Draft.ShowSystemProperties ? "▾" : "▸") System properties
+    </button>
+    @if (Draft.ShowSystemProperties)
+    {
+        <div class="system-props">
+            <label>Subject</label><input @bind="Draft.Subject" />
+            <label>Message ID</label><input @bind="Draft.MessageId" />
+            <label>Correlation ID</label><input @bind="Draft.CorrelationId" />
+            <label>Session ID</label><input @bind="Draft.SessionId" placeholder="@(RequiresSession ? "required: the entity uses sessions" : null)" />
+            <label>To</label><input @bind="Draft.To" />
+            <label>Reply to</label><input @bind="Draft.ReplyTo" />
+            <label>Scheduled enqueue (your local time)</label>
+            <InputDate @bind-Value="Draft.ScheduledLocal" Type="InputDateType.DateTimeLocal" />
+            <label>Time to live (seconds)</label>
+            <InputNumber @bind-Value="Draft.TimeToLiveSeconds" />
+        </div>
+    }
+
+    @if (!IsRepair)
+    {
+        <label for="composer-copies">Copies</label>
+        <InputNumber id="composer-copies" @bind-Value="Draft.Copies" min="1" max="1000" />
+    }
+    else if (CanRemoveOriginal)
+    {
+        <label class="checkbox-row" for="composer-remove-original"
+               title="Complete (remove) the original message after the edited copy was sent (FR-4.6)">
+            <input id="composer-remove-original" type="checkbox" @bind="_removeOriginal" />
+            <span>Remove from DLQ</span>
+        </label>
+    }
+
+    <div class="composer-actions">
+        @if (IsRepair)
+        {
+            <button class="primary" @onclick="SendRepairAsync" disabled="@_sending"
+                    title="Send the edited copy; the original stays untouched unless removal is requested (FR-4.6)">
+                @(_sending ? "Sending…" : "Send")
+            </button>
+        }
+        else
+        {
+            <button class="primary" @onclick="SendAsync" disabled="@_sending">
+                @(_sending ? "Sending…" : "Send")
+            </button>
+        }
+
+        <button type="button" @onclick="PreviewAsync" title="Render placeholder templating (FR-4.4)">Preview</button>
+        <button type="button" @onclick="ToggleCannedSave">Save as canned…</button>
+    </div>
+
+    @if (_preview is not null)
+    {
+        <pre class="body preview">@_preview</pre>
+    }
+
+    @if (_showCannedSave)
+    {
+        <div class="canned-save">
+            <input placeholder="name" @bind="_cannedName" />
+            <input placeholder="folder (optional)" @bind="_cannedFolder" />
+            @if (Draft.CannedSource is { } source)
+            {
+                <button type="button" @onclick="() => SaveCannedAsync(source.Id)" disabled="@_saving"
+                        title="Overwrite '@source.Name' with the current content">Update '@source.Name'</button>
+                <button type="button" @onclick="() => SaveCannedAsync(null)" disabled="@_saving">Save as new</button>
+            }
+            else
+            {
+                <button type="button" @onclick="() => SaveCannedAsync(null)" disabled="@_saving">Save</button>
+            }
+        </div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="error-bar">@_error</div>
+    }
+</div>
+

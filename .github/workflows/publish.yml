@@ -1,0 +1,124 @@
+# Publishing: main pushes → prerelease NuGets + `edge` image; v* tags → stable (DevOps §1/§5).
+# Both publish jobs depend on the green build job in the same run, so packages and images from
+# one tag always come from the same commit.
+name: publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions: read-all
+
+jobs:
+  build:
+    uses: ./.github/workflows/_build.yml
+    with:
+      pack: true
+
+  nuget:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      # Trusted publishing (OIDC) — no long-lived API keys anywhere. The nuget.org policy binds
+      # repo + this workflow filename + the release environment, so stable and prerelease pushes
+      # both flow through this file under a single policy.
+      id-token: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts
+
+      - name: NuGet login (trusted publishing)
+        # Exchanges the OIDC token for a short-lived API key (~1 h), returned as a step output.
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push to nuget.org
+        # --skip-duplicate keeps reruns of a failed workflow safe.
+        run: dotnet nuget push artifacts/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+
+  container:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+      # Pre-added for the deferred supply-chain slots (DevOps §7): enabling cosign keyless
+      # signing and build-provenance attestation later is a steps-only change.
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        # Deferred (DevOps §7): a Docker Hub mirror adds a second login + tag namespace here and
+        # needs only the DOCKERHUB_USERNAME / DOCKERHUB_TOKEN secrets on the release environment.
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=edge
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            # Stable releases only: a prerelease tag (v0.1.0-preview.1) never moves `latest` (DevOps §3).
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Deferred (DevOps §7): cosign sign + actions/attest-build-provenance append here;
+      # an SBOM action attaches in the same job — no structural change needed.
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, nuget, container]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        # Auto-generated notes come from PR titles — keep them meaningful, they are the changelog.
+        # A prerelease tag (v0.1.0-preview.1) becomes a GitHub prerelease, never the latest release.
+        run: |
+          prerelease=""
+          if [[ "$TAG" == *-* ]]; then prerelease="--prerelease"; fi
+          gh release create "$TAG" --generate-notes --verify-tag $prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}

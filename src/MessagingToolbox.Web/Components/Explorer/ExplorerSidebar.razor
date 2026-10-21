@@ -1,0 +1,96 @@
+@* Explorer sidebar: connection picker, entity search/filter, entity tree, entity editor, canned messages and audit log. *@
+<aside class="sidebar">
+    <ConnectionPanel Connections="Connections"
+                     Selected="SelectedConnection"
+                     SelectedChanged="ConnectionSelected" />
+
+    @if (SelectedConnection is not null)
+    {
+        <div class="sidebar-tools">
+            <input class="search" placeholder="Filter entities…" @bind="Workspace.SearchText" @bind:event="oninput" />
+            <button type="button" class="refresh-button" title="Refresh the entity tree and counts now"
+                    disabled="@Workspace.IsRefreshing" aria-busy="@(Workspace.IsRefreshing ? "true" : "false")"
+                    @onclick="RefreshRequested">
+                @if (Workspace.IsRefreshing)
+                {
+                    <span class="spinner" aria-hidden="true"></span>
+                    <span>Refreshing…</span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+            <label class="refresh-toggle" title="Auto-refresh the tree on a timer (ToolboxOptions:RefreshIntervalSeconds; 10 s when the option is 0)">
+                <input type="checkbox" checked="@AutoRefresh" @onclick="ToggleAutoRefresh" /> Auto
+            </label>
+        </div>
+
+        @if (Workspace.UnavailableReason is not null)
+        {
+            <div class="unavailable-state" role="status">
+                <strong>Broker unreachable</strong>
+                <span>@Workspace.UnavailableReason</span>
+                <span class="hint">Press Refresh or turn on Auto to retry.</span>
+            </div>
+        }
+
+        @if (Workspace.Tree is null)
+        {
+            <p class="hint">Loading entities…</p>
+        }
+        else
+        {
+            <EntityTree Nodes="Nodes"
+                        Selected="Workspace.SelectedNode"
+                        SelectedChanged="NodeSelected" />
+        }
+
+        <CapabilityGate Allowed="SelectedConnection.Capabilities?.CanManageEntities == true"
+                        Hint="@ManagementHint">
+            <EntityEditor ConnectionId="SelectedConnection.Id"
+                          Capabilities="SelectedConnection.Capabilities"
+                          Entities="Workspace.Tree ?? []" />
+        </CapabilityGate>
+
+        <CannedMessagesPanel OnInsert="CannedInsert" />
+        <AuditPanel />
+    }
+</aside>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<ConnectionDto>? Connections { get; set; }
+
+    [Parameter]
+    public ConnectionDto? SelectedConnection { get; set; }
+
+    [Parameter]
+    public bool AutoRefresh { get; set; }
+
+    [Parameter, EditorRequired]
+    public ConnectionWorkspace Workspace { get; set; } = default!;
+
+    [Parameter]
+    public IReadOnlyList<EntityTreeNodeDto> Nodes { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<ConnectionDto> ConnectionSelected { get; set; }
+
+    [Parameter]
+    public EventCallback ToggleAutoRefresh { get; set; }
+
+    [Parameter]
+    public EventCallback RefreshRequested { get; set; }
+
+    [Parameter]
+    public EventCallback<EntityTreeNodeDto> NodeSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<CannedMessageDto> CannedInsert { get; set; }
+
+    // The emulator admin endpoint is re-probed on refresh, so the reason says what to wait for.
+    private string ManagementHint => SelectedConnection?.Capabilities?.ManagementUnavailableReason is { } reason
+        ? $"{reason} It is retried on Refresh. Until then, the tree shows the entities modeled in the AppHost."
+        : "Entity management isn't available for this connection. On the Azure Service Bus emulator it needs the admin endpoint (port 5300, emulator 2.0 or later); until it answers, the tree shows the entities modeled in the AppHost.";
+}

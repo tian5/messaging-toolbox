@@ -1,0 +1,124 @@
+@* Live watch (opt-in): entities the user pinned are peeked on an interval; new arrivals show here,
+   never in the message grid, and nothing is locked or received. *@
+@using MessagingToolbox.Web.Services.Helpers
+@implements IDisposable
+@inject LiveWatchService LiveWatchService
+@inject IOptions<ToolboxOptions> Options
+
+@if (LiveWatchService.Watches.Count > 0)
+{
+    <section class="live-watch">
+        <h3>
+            Live watch
+            <span class="muted" title="Peek only: nothing is locked or received, and delivery counts don't change. Messages consumed between two peeks are not seen.">
+                peeks every @Options.Value.WatchIntervalSeconds s
+            </span>
+        </h3>
+        @foreach (LiveWatch watch in LiveWatchService.Watches)
+        {
+            <div class="watch" @key="watch.Key">
+                <div class="watch-header">
+                    <span class="connection-badge">@watch.ConnectionName</span>
+                    <button type="button" class="watch-target" title="Select this entity in the explorer (doesn't load messages)" @onclick="() => Open.InvokeAsync(watch)">
+                        @watch.Path
+                    </button>
+                    <span class="muted">@SubQueueLabels.LabelOf(watch.SubQueue)</span>
+                    @if (!watch.IsReady)
+                    {
+                        <span class="muted">starting…</span>
+                    }
+                    else
+                    {
+                        <span class="badge">@watch.ArrivalCount new</span>
+                        @if (watch.SinceLastSendCount > 0)
+                        {
+                            <span class="badge fresh" title="Arrived after your last send from this toolbox">@watch.SinceLastSendCount since last send</span>
+                        }
+                    }
+                    @if (watch.IsTruncated)
+                    {
+                        <span class="badge warn" title="This dead-letter queue holds more messages than one peek walks; new arrivals beyond them go unnoticed">first 5000 only</span>
+                    }
+                    @if (watch.Error is not null)
+                    {
+                        <span class="badge warn" title="@watch.Error">error</span>
+                    }
+                    <span class="watch-actions">
+                        <button type="button" disabled="@(watch.ArrivalCount == 0)" @onclick="() => LiveWatchService.Clear(watch)">Clear</button>
+                        <button type="button" title="Stop watching" @onclick="() => LiveWatchService.Unpin(watch)">Unpin</button>
+                    </span>
+                </div>
+
+                @if (watch.Arrivals.Count > 0)
+                {
+                    bool deadLetter = watch.SubQueue is MessageSubQueue.DeadLetter or MessageSubQueue.TransferDeadLetter;
+                    <table class="watch-arrivals">
+                        <tbody>
+                            @foreach (MessageDto message in watch.Arrivals)
+                            {
+                                string key = $"{watch.Key}|{message.SequenceNumber}";
+                                <tr class="@(watch.IsSinceLastSend(message) ? "fresh" : null)" @onclick="() => ToggleExpanded(key)">
+                                    <td>@message.SequenceNumber</td>
+                                    <td>@message.EnqueuedTime?.ToString("HH:mm:ss")</td>
+                                    <td class="ellipsis" title="@message.Subject">@message.Subject</td>
+                                    <td class="ellipsis" title="@message.MessageId">@message.MessageId</td>
+                                    @if (deadLetter)
+                                    {
+                                        <td class="ellipsis" title="@message.DeadLetterErrorDescription">@message.DeadLetterReason</td>
+                                    }
+                                </tr>
+                                @if (_expanded.Contains(key))
+                                {
+                                    <tr class="watch-detail">
+                                        <td colspan="@(deadLetter ? 5 : 4)">
+                                            @if (deadLetter)
+                                            {
+                                                <p><strong>@message.DeadLetterReason</strong> @message.DeadLetterErrorDescription</p>
+                                            }
+                                            <MessageBody Message="message" />
+                                            @if (message.ApplicationProperties.Count > 0)
+                                            {
+                                                <dl class="props">
+                                                    @foreach (KeyValuePair<string, object?> property in message.ApplicationProperties)
+                                                    {
+                                                        <div><dt>@property.Key</dt><dd>@(property.Value?.ToString() ?? "—")</dd></div>
+                                                    }
+                                                </dl>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                    @if (watch.ArrivalCount > watch.Arrivals.Count)
+                    {
+                        <p class="hint">Showing the newest @watch.Arrivals.Count of @watch.ArrivalCount.</p>
+                    }
+                }
+            </div>
+        }
+    </section>
+}
+
+@code {
+    /// <summary>Select the watched entity in the explorer; loading its messages stays up to the user.</summary>
+    [Parameter]
+    public EventCallback<LiveWatch> Open { get; set; }
+
+    private readonly HashSet<string> _expanded = [];
+
+    protected override void OnInitialized() => LiveWatchService.Changed += OnWatchChanged;
+
+    private Task OnWatchChanged() => InvokeAsync(StateHasChanged);
+
+    private void ToggleExpanded(string key)
+    {
+        if (!_expanded.Remove(key))
+        {
+            _expanded.Add(key);
+        }
+    }
+
+    public void Dispose() => LiveWatchService.Changed -= OnWatchChanged;
+}

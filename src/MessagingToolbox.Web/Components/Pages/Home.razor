@@ -1,0 +1,139 @@
+@page "/"
+@inherits ToolboxComponentBase
+
+<PageTitle>MessagingToolbox</PageTitle>
+
+<div class="explorer">
+    <ExplorerSidebar @ref="_sidebar"
+                    Connections="ConnectionsStore.Connections"
+                    SelectedConnection="_selectedConnection"
+                    AutoRefresh="_autoRefresh"
+                    Workspace="ActiveConnectionWorkspace"
+                    Nodes="FilteredTree()"
+                    ConnectionSelected="OnConnectionSelectedAsync"
+                    ToggleAutoRefresh="ToggleAutoRefresh"
+                    RefreshRequested="RefreshNowAsync"
+                    NodeSelected="OnNodeSelected"
+                    CannedInsert="OnCannedInsert" />
+
+    <section class="details">
+        @if (_error is not null)
+        {
+            <div class="error-bar">@_error</div>
+        }
+        <NotificationStack />
+        <LiveWatchPanel Open="OpenWatchedAsync" />
+
+        @if (ActiveConnectionWorkspace.SelectedNode is null)
+        {
+            <p class="hint">Select a queue, topic, or subscription to inspect it.</p>
+        }
+        else
+        {
+            <EntityDetails Node="ActiveConnectionWorkspace.SelectedNode"
+                           CanWatch="CanPeek"
+                           Watched="IsSelectedNodeWatched"
+                           ToggleWatch="ToggleWatch" />
+
+            @if (CanPeek)
+            {
+                <PeekControls Workspace="ActiveConnectionWorkspace"
+                              IsScheduledNode="IsScheduledNode"
+                              RequiresSession="@(ActiveConnectionWorkspace.SelectedNode?.RequiresSession == true)"
+                              SubQueueLabel="@SubQueueLabel"
+                              EntityBusy="IsSelectedEntityBusy"
+                              EntityLoading="IsSelectedEntityLoading"
+                              Load="LoadMessagesAsync" />
+
+                <MessageActionsBar Workspace="ActiveConnectionWorkspace"
+                                   IsScheduledNode="IsScheduledNode"
+                                   CanDeadLetterSelection="CanDeadLetterSelection"
+                                   IsDeadLetterNode="IsDeadLetterNode"
+                                   IsReceiveAndDeleteLoaded="IsReceiveAndDeleteLoaded"
+                                   EntityBusy="IsSelectedEntityBusy"
+                                   Export="ExportAsync"
+                                   Import="ImportAsync"
+                                   DeferredSelectedCount="ActiveConnectionWorkspace.SelectedDeferredMessages.Count"
+                                   ReceiveDeferred="ReceiveDeferredSelected"
+                                   Purge="PurgeAsync"
+                                   DeadLetter="DeadLetterSelected"
+                                   Requeue="OpenRequeue"
+                                   Delete="DeleteSelected" />
+
+                @if (IsDeadLetterNode && _requeuePanelVisible)
+                {
+                    <div class="requeue-panel">
+                        <label>
+                            Requeue into
+                            <select @bind="_requeueTarget">
+                                @foreach (EntityTreeNodeDto target in RequeueTargets)
+                                {
+                                    <option value="@target.Path">@target.Name (@target.Kind)</option>
+                                }
+                            </select>
+                        </label>
+                        <label>
+                            <input type="checkbox" @bind="_requeueRemoveOriginals" />
+                            Remove originals from the DLQ after requeue
+                        </label>
+                        <button type="button" @onclick="ConfirmRequeue" disabled="@(string.IsNullOrWhiteSpace(_requeueTarget) || ActiveConnectionWorkspace.Selection.Count == 0 || IsSelectedEntityBusy)">Requeue (@ActiveConnectionWorkspace.Selection.Count)</button>
+                        <button type="button" @onclick="CloseRequeue">Cancel</button>
+                    </div>
+                }
+
+                @if (ActiveConnectionWorkspace.SelectedLockTokens.Count > 0)
+                {
+                    <SettleBar Count="ActiveConnectionWorkspace.SelectedLockTokens.Count" CanDeadLetter="!IsDeadLetterNode" Disabled="IsSelectedEntityBusy" OnSettle="SettleAsync" />
+                }
+
+                @if (ActiveConnectionWorkspace.IsStale)
+                {
+                    @* Messages are never reloaded behind the user's back (FR-3.1): own changes only drop the rows they removed. *@
+                    <p class="hint stale-view" role="status">
+                        You changed this entity since these messages were loaded; the list may be out of date.
+                        <button type="button" @onclick="LoadMessagesAsync" disabled="@(IsSelectedEntityBusy || IsSelectedEntityLoading)">Load again</button>
+                    </p>
+                }
+
+                <div class="message-panels">
+                    <MessageGrid Messages="DisplayedMessages()"
+                                 Selected="ActiveConnectionWorkspace.SelectedMessage"
+                                 SelectedChanged="message => ActiveConnectionWorkspace.SelectedMessage = message"
+                                 SelectedSequences="ActiveConnectionWorkspace.Selection"
+                                 SelectionToggled="ToggleSelection"
+                                 AllSelectionToggled="ToggleAllSelection"
+                                 Loading="IsSelectedEntityLoading"
+                                 Error="@ActiveConnectionWorkspace.PeekError" />
+                    <MessageDetail Message="ActiveConnectionWorkspace.SelectedMessage"
+                                   ShowRepair="IsDeadLetterNode"
+                                   Busy="IsSelectedEntityBusy"
+                                   OnSendCopy="SendCopyAsync"
+                                   OnRepair="RepairAsync" />
+                </div>
+            }
+
+            @if (CanSend || ActiveConnectionWorkspace.EditMessage is not null)
+            {
+                <MessageComposer @key="ComposerKey()"
+                                 Draft="ActiveConnectionWorkspace.RepairDraft ?? ActiveConnectionWorkspace.Draft"
+                                 FanOutWarning="FanOutWarning"
+                                 ConnectionId="_selectedConnection!.Id"
+                                 EntityPath="@(ActiveConnectionWorkspace.OriginalPath ?? ActiveConnectionWorkspace.SelectedNode?.Path ?? string.Empty)"
+                                 Prefill="ActiveConnectionWorkspace.EditMessage"
+                                 OriginalMessage="@(ActiveConnectionWorkspace.OriginalPath is null ? null : ActiveConnectionWorkspace.EditMessage)"
+                                 OriginalPath="@ActiveConnectionWorkspace.OriginalPath"
+                                 OriginalSubQueue="ActiveConnectionWorkspace.OriginalSubQueue"
+                                 OriginalLockToken="@ActiveConnectionWorkspace.OriginalLockToken"
+                                 OriginalSequenceNumber="ActiveConnectionWorkspace.OriginalSequenceNumber"
+                                 RequiresSession="@(ActiveConnectionWorkspace.SelectedNode?.RequiresSession == true)"
+                                 OnSent="OnComposerSentAsync" />
+            }
+        }
+        </section>
+</div>
+
+<ConfirmDialog Visible="@Confirmation.HasPendingRequest"
+               Title="@Confirmation.Title"
+               Message="@Confirmation.Message"
+               OnConfirm="ConfirmAsync"
+               OnCancel="CancelConfirm" />

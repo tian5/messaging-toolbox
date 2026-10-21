@@ -1,0 +1,52 @@
+@* Notifications stack so several concurrent operations (e.g. fetches on different
+   entities) can report at the same time; the connection badge shows where each belongs.
+   Only the newest few render — older ones collapse behind an on-demand toggle — and the
+   whole stack can be cleared at once. *@
+@implements IDisposable
+@inject NotificationService NotificationService
+
+@if (NotificationService.Notifications.Count > 0)
+{
+    IReadOnlyList<Notification> all = NotificationService.Notifications;
+    IEnumerable<Notification> visible = _expanded ? all : all.TakeLast(VisibleCount);
+
+    <div class="info-stack">
+        <div class="info-stack-header">
+            @if (all.Count > VisibleCount)
+            {
+                <button type="button" class="show-older" @onclick="() => _expanded = !_expanded">
+                    @(_expanded ? "Show less ▴" : $"Show {all.Count - VisibleCount} older ▾")
+                </button>
+            }
+            @if (all.Count > 1)
+            {
+                <button type="button" class="clear-all" @onclick="NotificationService.Clear">Clear all</button>
+            }
+        </div>
+        @foreach (Notification notification in visible)
+        {
+            <div class="info-bar @(notification.Pending ? "pending" : null)" @key="notification.Id">
+                <span class="notification-body">
+                    @if (!string.IsNullOrEmpty(notification.ConnectionName))
+                    {
+                        <span class="connection-badge">@notification.ConnectionName</span>
+                    }
+                    @notification.Text
+                </span>
+                <button type="button" class="dismiss" @onclick="() => NotificationService.Dismiss(notification)">✕</button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private const int VisibleCount = 5;
+
+    private bool _expanded;
+
+    protected override void OnInitialized() => NotificationService.OnChanged += HandleChanged;
+
+    private void HandleChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => NotificationService.OnChanged -= HandleChanged;
+}

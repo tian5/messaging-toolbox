@@ -1,0 +1,29 @@
+@* Wraps UI that only makes sense when the provider declares a capability: renders the child
+   content when allowed, otherwise an explanatory hint (or nothing when HideWhenDenied is set). *@
+@if (Allowed)
+{
+    @ChildContent
+}
+else if (!HideWhenDenied)
+{
+    <div class="capability-hint">
+        @(Hint ?? "This action isn't supported by the active connection.")
+    </div>
+}
+
+@code {
+    /// <summary>Computed by the caller from the active connection's ProviderCapabilities.</summary>
+    [Parameter]
+    public bool Allowed { get; set; }
+
+    /// <summary>Explanation shown when the capability is missing.</summary>
+    [Parameter]
+    public string? Hint { get; set; }
+
+    /// <summary>Hide the wrapped UI completely instead of showing the hint.</summary>
+    [Parameter]
+    public bool HideWhenDenied { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

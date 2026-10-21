@@ -1,0 +1,14 @@
+# Auto-detect text files and normalize line endings to LF on check-in.
+* text=auto eol=lf
+
+# Shell scripts keep LF even on Windows.
+*.sh text eol=lf
+
+# Known binary types.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.nupkg binary
+*.snupkg binary

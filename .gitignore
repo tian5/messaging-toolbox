@@ -1,0 +1,42 @@
+# Build output
+bin/
+obj/
+out/
+artifacts/
+[Dd]ebug/
+[Rr]elease/
+
+# Test results and coverage
+TestResults/
+*.trx
+coverage*.xml
+coverage*.json
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# .NET
+project.lock.json
+*.nupkg
+*.snupkg
+.nuget/
+
+# Aspire / local orchestration
+.aspire/
+*.dcp
+
+# Local runtime data (SQLite toolbox state, logs)
+data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

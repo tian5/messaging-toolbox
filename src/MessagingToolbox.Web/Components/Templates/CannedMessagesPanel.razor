@@ -1,0 +1,117 @@
+@inherits ToolboxComponentBase
+@implements IDisposable
+
+@* Canned message library (FR-4.3): folder-grouped, insert into composer, rename/move, delete
+   (confirmed). Editing the content goes through the composer: insert, change, "Update". *@
+<div class="canned-panel">
+    <h3>Canned messages</h3>
+
+    @if (CannedStore.Messages.Count == 0)
+    {
+        <p class="hint">Save the current composer content as a canned message to reuse it here.</p>
+    }
+    else
+    {
+        @foreach (IGrouping<string, CannedMessageDto> folder in CannedStore.Messages.GroupBy(message => message.Folder))
+        {
+            <div class="canned-folder">@folder.Key</div>
+            @foreach (CannedMessageDto message in folder)
+            {
+                @if (_renaming?.Id == message.Id)
+                {
+                    <div class="canned-row canned-rename">
+                        <input placeholder="name" @bind="_renameName" />
+                        <input placeholder="folder" @bind="_renameFolder" />
+                        <button type="button" @onclick="RenameAsync" disabled="@string.IsNullOrWhiteSpace(_renameName)">Save</button>
+                        <button type="button" @onclick="() => _renaming = null">Cancel</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="canned-row">
+                        <button type="button" class="canned-insert" title="Insert into composer — edit it there and use Update to save changes"
+                                @onclick="() => OnInsert.InvokeAsync(message)">
+                            @message.Name
+                        </button>
+                        <button type="button" class="test" title="Rename or move to another folder"
+                                @onclick="() => BeginRename(message)">✎</button>
+                        <button type="button" class="test" title="Delete"
+                                @onclick="() => ConfirmDelete(message)">✕</button>
+                    </div>
+                }
+            }
+        }
+    }
+</div>
+
+@code {
+    [Inject] private CannedMessagesStore CannedStore { get; set; } = default!;
+
+    [Inject] private NotificationService Notifications { get; set; } = default!;
+
+    [Inject] private ILogger<CannedMessagesPanel> Logger { get; set; } = default!;
+
+    [Inject] private ConfirmationService Confirmation { get; set; } = default!;
+
+    private CannedMessageDto? _renaming;
+    private string? _renameName;
+    private string? _renameFolder;
+
+    [Parameter]
+    public EventCallback<CannedMessageDto> OnInsert { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        CannedStore.Changed += OnStoreChangedAsync;
+        await CannedStore.InitializeAsync();
+    }
+
+    private Task OnStoreChangedAsync() => InvokeAsync(StateHasChanged);
+
+    private void BeginRename(CannedMessageDto message)
+    {
+        _renaming = message;
+        _renameName = message.Name;
+        _renameFolder = message.Folder;
+    }
+
+    private async Task RenameAsync()
+    {
+        if (_renaming is not { } message)
+        {
+            return;
+        }
+
+        try
+        {
+            await CannedStore.RenameAsync(message, _renameName!.Trim(), _renameFolder?.Trim() ?? string.Empty);
+            _renaming = null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Logger.LogWarning(exception, "Renaming canned message {Name} failed", message.Name);
+            Notifications.Notify($"Renaming canned message '{message.Name}' failed: {exception.Message}");
+        }
+    }
+
+    private void ConfirmDelete(CannedMessageDto message)
+        => Confirmation.Request(
+            "Delete canned message",
+            $"Delete the canned message '{message.Name}' from folder '{message.Folder}'? This cannot be undone.",
+            () => DeleteAsync(message));
+
+    private async Task DeleteAsync(CannedMessageDto message)
+    {
+        try
+        {
+            await CannedStore.DeleteAsync(message.Id);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Logger.LogWarning(exception, "Deleting canned message {Name} failed", message.Name);
+            Notifications.Notify($"Deleting canned message '{message.Name}' failed: {exception.Message}");
+        }
+    }
+
+    public void Dispose() => CannedStore.Changed -= OnStoreChangedAsync;
+}

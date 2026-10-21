@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Description>MessagingToolbox provider for Azure Service Bus: cloud namespaces and the Azure Service Bus emulator (as a mode) over one AMQP code path.</Description>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\MessagingToolbox.Abstractions\MessagingToolbox.Abstractions.csproj" />
+        <ProjectReference Include="..\MessagingToolbox.Application\MessagingToolbox.Application.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="MessagingToolbox.Providers.AzureServiceBus.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Azure.Messaging.ServiceBus" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    </ItemGroup>
+
+</Project>

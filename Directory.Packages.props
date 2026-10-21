@@ -1,0 +1,51 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Aspire orchestration and hosting integrations -->
+    <PackageVersion Include="Aspire.Hosting" Version="13.6.2" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.6.2" />
+    <PackageVersion Include="Aspire.Hosting.Azure.ServiceBus" Version="13.6.2" />
+    <!-- Security pin: Aspire.Hosting 13.6.1 brings MessagePack 2.5.302 (GHSA-qhrr-8q5h-9q3h, fixed
+         in 2.5.303). Referenced directly by MessagingToolbox.Aspire.Hosting; drop once Aspire ships
+         a patched version. -->
+    <PackageVersion Include="MessagePack" Version="3.1.12" />
+    <!-- CQRS mediator (source generator — not MediatR) -->
+    <PackageVersion Include="FluentValidation" Version="12.2.0" />
+    <PackageVersion Include="Mediator.Abstractions" Version="3.0.2" />
+    <PackageVersion Include="Mediator.SourceGenerator" Version="3.0.2" />
+    <!-- Broker SDK — referenced by MessagingToolbox.Providers.AzureServiceBus only -->
+    <PackageVersion Include="Azure.Messaging.ServiceBus" Version="7.21.0" />
+    <!-- Persistence — referenced by MessagingToolbox.Infrastructure only -->
+    <PackageVersion Include="Microsoft.AspNetCore.DataProtection" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
+    <!-- Framework abstractions for class libraries -->
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+    <!-- Observability (MessagingToolbox.ServiceDefaults) -->
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.20.1" />
+    <!-- Tag-driven versioning (DevOps guidelines §6) -->
+    <PackageVersion Include="MinVer" Version="8.0.0" />
+    <!-- Testing -->
+    <PackageVersion Include="coverlet.collector" Version="10.1.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageVersion Include="NetArchTest.Rules" Version="1.3.2" />
+    <PackageVersion Include="NSubstitute" Version="6.2.0" />
+    <PackageVersion Include="Shouldly" Version="4.3.0" />
+    <PackageVersion Include="Testcontainers" Version="4.16.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
+  </ItemGroup>
+</Project>

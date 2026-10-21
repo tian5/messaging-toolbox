@@ -1,0 +1,38 @@
+@* Confirmation gate for destructive operations (NFR-3): every destructive op passes through
+   this dialog before executing. *@
+@if (Visible)
+{
+    <div class="confirm-overlay">
+        <div class="confirm-dialog" role="alertdialog" aria-modal="true">
+            <h3>@Title</h3>
+            <p>@Message</p>
+            <div class="confirm-actions">
+                <button class="@(Danger ? "danger" : "primary")" @onclick="OnConfirm">@ConfirmLabel</button>
+                <button @onclick="OnCancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool Visible { get; set; }
+
+    [Parameter]
+    public string Title { get; set; } = "Confirm";
+
+    [Parameter]
+    public string Message { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ConfirmLabel { get; set; } = "Confirm";
+
+    [Parameter]
+    public bool Danger { get; set; } = true;
+
+    [Parameter]
+    public EventCallback OnConfirm { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+}
