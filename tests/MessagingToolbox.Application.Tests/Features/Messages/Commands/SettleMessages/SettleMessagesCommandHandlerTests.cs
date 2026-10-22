@@ -1,10 +1,13 @@
 using MessagingToolbox.Abstractions;
+using MessagingToolbox.Abstractions.Errors;
 using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Core.Models;
 using MessagingToolbox.Application.Features.Messages.Commands.SettleMessages;
 using MessagingToolbox.Application.Services;
+using MessagingToolbox.Application.Tests.Common;
 using NSubstitute;
+using Shouldly;
 using Xunit;
 
 namespace MessagingToolbox.Application.Tests.Features.Messages.Commands.SettleMessages;
@@ -23,6 +26,7 @@ public class SettleMessagesCommandHandlerTests
     {
         _providerFactory = Substitute.For<IMessagingProviderFactory>();
         _provider = Substitute.For<IMessagingProvider>();
+        _provider.Capabilities.Returns(TestCapabilities.Full);
         _connectionCatalog = Substitute.For<IConnectionCatalog>();
         _auditLog = Substitute.For<IAuditLog>();
         _providerFactory.GetProviderAsync(ConnectionId, Arg.Any<CancellationToken>()).Returns(_provider);
@@ -106,6 +110,20 @@ public class SettleMessagesCommandHandlerTests
         await _sut.Handle(
             new SettleMessagesCommand(ConnectionId, "orders", MessageSubQueue.Active, SettlementOperation.Complete, [], null, null),
             CancellationToken.None);
+
+
+        await _provider.DidNotReceiveWithAnyArgs().SettleAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_DeferWithoutDeferralSupport_ThrowsWithoutSettling()
+    {
+        _provider.Capabilities.Returns(TestCapabilities.Full with { SupportsDeferral = false });
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => _sut.Handle(
+            new SettleMessagesCommand(ConnectionId, "orders", MessageSubQueue.Active, SettlementOperation.Defer, ["token-1"], null, null),
+            CancellationToken.None).AsTask());
 
 
         await _provider.DidNotReceiveWithAnyArgs().SettleAsync(default!, default);

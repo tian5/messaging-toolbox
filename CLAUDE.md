@@ -23,7 +23,8 @@ win. Then fix the docs.
    request/model records in `src/MessagingToolbox.Abstractions/`. Keep it broker-agnostic, with no
    SDK types.
 2. **Capability.** If not every provider or mode can support it, add or reuse a
-   `ProviderCapabilities` flag and set it in `AzureServiceBusCapabilities` (cloud vs emulator).
+   `ProviderCapabilities` flag and set it in every provider's capability profile
+   (`AzureServiceBusCapabilities`: cloud vs emulator).
    The provider throws `NotSupportedByProviderException` when the flag is absent.
 3. **Provider.** Implement it in `Providers.AzureServiceBus`. Translate every SDK exception
    through `ServiceBusExceptionTranslator`. Emulator quirks stay in this project, under
@@ -47,7 +48,10 @@ win. Then fix the docs.
 
 ## Invariants that are easy to break
 
-- **Browsing is side-effect free.** Peek never locks, receives, or bumps delivery counts.
+- **Browsing is side-effect free** for `PeekMode.NonDestructive` entities. Peek never locks,
+  receives, or bumps delivery counts. Entities that report `PeekMode.Requeue` (no read-only
+  browse on that broker) are peeked only on an explicit Load, with the cost disclosed, and never
+  from live watch or count sampling (ADR 17).
   This also holds for session-enabled entities: a plain receiver peeks across sessions, so
   never accept a session to browse (ADR 12).
 - **Sessions are for receives only.** Receives on a session entity's active sub-queue go
@@ -69,7 +73,9 @@ win. Then fix the docs.
   dead-letter path uses the cancel → resend-with-marker → sweep flow, disclosed in the
   confirmation text.
 - **Resubmit is always a clone.** Removing the original is a separate, confirmed, audited action.
-- **Provider instances are cached singletons**, one per connection, in `MessagingProviderFactory`.
+- **Provider instances are cached singletons**, one per connection, in `MessagingProviderFactory`
+  (Infrastructure). Providers plug in through an `IMessagingProviderBuilder` registered with
+  `TryAddEnumerable`; never add a `ProviderKind` switch (ADR 17).
   Handlers are scoped. Never let a Blazor circuit hold a broker client. Evict through
   `DisposeAsync` when a profile changes.
 - **Emulator runtime counts** come from `PeekRuntimeCountSampler`, because the admin runtime

@@ -26,6 +26,7 @@ public static class MessageDtoMapper
             ContentType = message.ContentType,
             TimeToLive = message.TimeToLive,
             ScheduledEnqueueTime = message.ScheduledEnqueueTime,
+            RoutingKey = message.RoutingKey,
             SequenceNumber = message.SequenceNumber,
             State = message.State,
             DeliveryCount = message.DeliveryCount,
@@ -36,6 +37,7 @@ public static class MessageDtoMapper
             LockToken = message.LockToken,
             LockedUntil = message.LockedUntil,
             ApplicationProperties = message.ApplicationProperties,
+            BrokerProperties = message.BrokerProperties,
         };
     }
 
@@ -54,6 +56,7 @@ public static class MessageDtoMapper
         PartitionKey = message.PartitionKey,
         ScheduledEnqueueTime = message.ScheduledEnqueueTime,
         TimeToLive = message.TimeToLive,
+        RoutingKey = message.RoutingKey,
         ApplicationProperties = message.ApplicationProperties,
     };
 
@@ -69,7 +72,8 @@ public static class MessageDtoMapper
         string? to = null,
         string? replyTo = null,
         DateTimeOffset? scheduledEnqueueTime = null,
-        TimeSpan? timeToLive = null) => new()
+        TimeSpan? timeToLive = null,
+        string? routingKey = null) => new()
     {
         Body = Encoding.UTF8.GetBytes(body),
         ContentType = contentType,
@@ -81,6 +85,7 @@ public static class MessageDtoMapper
         ReplyTo = replyTo,
         ScheduledEnqueueTime = scheduledEnqueueTime,
         TimeToLive = timeToLive,
+        RoutingKey = routingKey,
         ApplicationProperties = applicationProperties,
     };
 }

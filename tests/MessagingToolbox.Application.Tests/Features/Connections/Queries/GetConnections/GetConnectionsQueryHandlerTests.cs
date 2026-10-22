@@ -5,6 +5,7 @@ using MessagingToolbox.Application.Common.Dtos;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Core.Models;
 using MessagingToolbox.Application.Features.Connections.Queries.GetConnections;
+using MessagingToolbox.Application.Tests.Common;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -32,7 +33,7 @@ public class GetConnectionsQueryHandlerTests
     public async Task Handle_ConnectionWithProviderCapabilities_ReturnsMappedConnection()
     {
         ConnectionInfo connection = CreateConnection();
-        ProviderCapabilities capabilities = new(true, true, true, true, true, true, true, 1024);
+        ProviderCapabilities capabilities = TestCapabilities.Full with { MaxMessageSizeBytes = 1024 };
 
         _connectionCatalog.GetAllAsync(Arg.Any<CancellationToken>()).Returns([connection]);
         _providerFactory.GetProviderAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(_provider);

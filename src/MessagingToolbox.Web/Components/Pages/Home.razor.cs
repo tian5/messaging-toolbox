@@ -77,9 +77,18 @@ public partial class Home : IDisposable
         ? WorkspaceStore.For(connection.Id)
         : WorkspaceStore.Empty;
 
-    private bool CanPeek => ActiveConnectionWorkspace.SelectedNode is { Kind: EntityKind.Queue or EntityKind.Subscription };
+    private ProviderCapabilities? Capabilities => _selectedConnection?.Capabilities;
 
-    private bool CanSend => ActiveConnectionWorkspace.SelectedNode is { SubQueue: MessageSubQueue.Active, Kind: EntityKind.Queue or EntityKind.Topic };
+    // Message-bearing entities only, and only when the broker can browse at all (ADR 5).
+    private bool CanPeek => ActiveConnectionWorkspace.SelectedNode is { Kind: EntityKind.Queue or EntityKind.Subscription }
+        && Capabilities?.CanPeek != false;
+
+    // Live watch peeks on a timer, so it needs a side-effect-free peek and a sequence cursor (ADR 15, ADR 17).
+    private bool CanWatch => CanPeek
+        && ActiveConnectionWorkspace.SelectedNode is { PeekMode: PeekMode.NonDestructive }
+        && Capabilities?.SupportsSequenceNumbers != false;
+
+    private bool CanSend => ActiveConnectionWorkspace.SelectedNode is { SubQueue: MessageSubQueue.Active, Kind: EntityKind.Queue or EntityKind.Topic or EntityKind.Exchange };
 
     private bool IsScheduledNode => ActiveConnectionWorkspace.SelectedNode?.SubQueue == MessageSubQueue.Scheduled;
 
@@ -94,7 +103,7 @@ public partial class Home : IDisposable
     // are excluded explicitly.
     private IReadOnlyList<EntityTreeNodeDto> RequeueTargets => ActiveConnectionWorkspace.Tree is { } tree
         ? EntityTreeFiltering.Flatten(tree)
-            .Where(node => !node.IsSubQueueNode && node.Kind is EntityKind.Queue or EntityKind.Topic)
+            .Where(node => !node.IsSubQueueNode && node.Kind is EntityKind.Queue or EntityKind.Topic or EntityKind.Exchange)
             .ToList()
         : [];
 
@@ -144,6 +153,12 @@ public partial class Home : IDisposable
     // Pinning is the user's explicit opt-in to watching; it never loads messages into the grid.
     private void ToggleWatch()
     {
+        // A requeue-peek must never run on a timer (ADR 17); unpinning is always allowed.
+        if (!CanWatch && !IsSelectedNodeWatched)
+        {
+            return;
+        }
+
         if (_selectedConnection is { } connection && ActiveConnectionWorkspace.SelectedNode is { } node)
         {
             LiveWatches.Toggle(connection.Id, connection.DisplayName, node.Path, node.SubQueue);

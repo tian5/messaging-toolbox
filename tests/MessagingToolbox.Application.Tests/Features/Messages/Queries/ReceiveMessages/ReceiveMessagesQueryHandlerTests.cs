@@ -3,8 +3,9 @@ using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Common.Dtos;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Core.Models;
-using MessagingToolbox.Application.Services;
 using MessagingToolbox.Application.Features.Messages.Queries.ReceiveMessages;
+using MessagingToolbox.Application.Services;
+using MessagingToolbox.Application.Tests.Common;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -83,9 +84,7 @@ public class ReceiveMessagesQueryHandlerTests
     [Fact]
     public async Task Handle_SessionId_PassesSessionToProvider()
     {
-        _provider.Capabilities.Returns(new ProviderCapabilities(
-            CanManageEntities: false, CanManageRules: false, CanPeek: true, CanReceiveSettle: true,
-            SupportsSessions: true, SupportsScheduling: true, SupportsTransactions: false, MaxMessageSizeBytes: 256 * 1024));
+        _provider.Capabilities.Returns(TestCapabilities.DataPlane);
         _provider.ReceiveAsync(Arg.Any<ReceiveRequest>(), Arg.Any<CancellationToken>()).Returns([]);
 
 

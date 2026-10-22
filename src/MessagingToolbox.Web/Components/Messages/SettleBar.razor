@@ -3,7 +3,10 @@
     <span class="muted">@Count selected</span>
     <button type="button" disabled="@Disabled" @onclick='() => OnSettle.InvokeAsync(new SettleAction(SettlementOperation.Complete, null, null))'>Complete</button>
     <button type="button" disabled="@Disabled" @onclick='() => OnSettle.InvokeAsync(new SettleAction(SettlementOperation.Abandon, null, null))'>Abandon</button>
-    <button type="button" disabled="@Disabled" @onclick='() => OnSettle.InvokeAsync(new SettleAction(SettlementOperation.Defer, null, null))'>Defer</button>
+    @if (CanDefer)
+    {
+        <button type="button" disabled="@Disabled" @onclick='() => OnSettle.InvokeAsync(new SettleAction(SettlementOperation.Defer, null, null))'>Defer</button>
+    }
     @if (CanDeadLetter)
     {
         <input class="reason" placeholder="dead-letter reason" @bind="_reason" disabled="@Disabled" />
@@ -23,6 +26,10 @@
     /// <summary>Dead-letter is not offered in DLQ views — a dead-lettered message cannot be dead-lettered again.</summary>
     [Parameter]
     public bool CanDeadLetter { get; set; } = true;
+
+    /// <summary>Defer is offered only where the broker can bring deferred messages back (ADR 13).</summary>
+    [Parameter]
+    public bool CanDefer { get; set; } = true;
 
     /// <summary>True while a long-running operation holds the entity lock — settle actions stay disabled.</summary>
     [Parameter]

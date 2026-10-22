@@ -1,7 +1,7 @@
 namespace MessagingToolbox.Abstractions.Messaging;
 
 /// <summary>
-/// A broker entity: queue, topic, or subscription (discriminated by <see cref="Kind"/>).
+/// A broker entity: queue, topic, subscription, or exchange (discriminated by <see cref="Kind"/>).
 /// <see cref="Path"/> conventions: queues and topics use their name, subscriptions use
 /// "{topic}/subscriptions/{subscription}" so the path is directly usable by provider clients.
 /// </summary>
@@ -23,6 +23,9 @@ public sealed record MessagingEntity
     /// doesn't or when the discovery channel can't tell (e.g. entities modeled in an Aspire AppHost).
     /// </summary>
     public bool RequiresSession { get; init; }
+
+    /// <summary>What browsing this entity costs; providers without a read-only browse report <see cref="PeekMode.Requeue"/>.</summary>
+    public PeekMode PeekMode { get; init; } = PeekMode.NonDestructive;
 
     /// <summary>Runtime counts/sizes when the provider can obtain them; null otherwise.</summary>
     public EntityRuntimeInfo? RuntimeInfo { get; init; }

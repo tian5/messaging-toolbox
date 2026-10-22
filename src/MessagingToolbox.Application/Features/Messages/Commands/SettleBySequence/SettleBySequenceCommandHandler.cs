@@ -1,5 +1,6 @@
 using Mediator;
 using MessagingToolbox.Abstractions;
+using MessagingToolbox.Abstractions.Errors;
 using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Common;
 using MessagingToolbox.Application.Core.Interfaces;
@@ -32,6 +33,12 @@ public sealed class SettleBySequenceCommandHandler : IRequestHandler<SettleBySeq
         }
 
         IMessagingProvider provider = await _providerFactory.GetProviderAsync(request.ConnectionId, cancellationToken);
+
+        if (!provider.Capabilities.SupportsSequenceNumbers)
+        {
+            throw new NotSupportedByProviderException(
+                "This connection has no sequence numbers; load the messages for settlement and settle them instead.");
+        }
 
         IReadOnlyList<long> settled = await provider.SettleBySequenceNumbersAsync(
             new SettleBySequenceRequest(

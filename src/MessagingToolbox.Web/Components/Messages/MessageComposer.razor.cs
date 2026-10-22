@@ -68,6 +68,10 @@ public partial class MessageComposer : IAsyncDisposable
     [Parameter]
     public bool RequiresSession { get; set; }
 
+    /// <summary>The active connection's capabilities; fields the broker can't honor are hidden. Null while unknown.</summary>
+    [Parameter]
+    public ProviderCapabilities? Capabilities { get; set; }
+
     /// <summary>Explains a target that fans out (a subscription publishes to its whole topic); null when it doesn't.</summary>
     [Parameter]
     public Func<string, string?>? FanOutWarning { get; set; }

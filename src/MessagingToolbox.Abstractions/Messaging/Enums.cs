@@ -6,6 +6,23 @@ public enum EntityKind
     Queue,
     Topic,
     Subscription,
+
+    /// <summary>A routing entity that holds no messages itself (e.g. a RabbitMQ exchange).</summary>
+    Exchange,
+}
+
+/// <summary>What browsing (peek) an entity costs.</summary>
+public enum PeekMode
+{
+    /// <summary>Peek is free: no lock, no delivery, no state change.</summary>
+    NonDestructive,
+
+    /// <summary>
+    /// The broker has no read-only browse: peek takes the messages and requeues them, so they are
+    /// marked redelivered, briefly invisible to consumers, and may change order. Only ever on an
+    /// explicit Load — never from counts, sampling or live watch.
+    /// </summary>
+    Requeue,
 }
 
 /// <summary>Sub-queue a message operation targets.</summary>

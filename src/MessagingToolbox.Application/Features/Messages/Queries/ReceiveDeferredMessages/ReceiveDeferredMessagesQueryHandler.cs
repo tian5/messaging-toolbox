@@ -26,6 +26,11 @@ public sealed class ReceiveDeferredMessagesQueryHandler : IRequestHandler<Receiv
             throw new NotSupportedByProviderException("This connection does not support receiving messages for settlement.");
         }
 
+        if (!provider.Capabilities.SupportsDeferral)
+        {
+            throw new NotSupportedByProviderException("This connection does not support deferred messages.");
+        }
+
         IReadOnlyList<ToolboxMessage> messages = await provider.ReceiveDeferredForSettlementAsync(
             new ReceiveDeferredRequest(
                 request.EntityPath,

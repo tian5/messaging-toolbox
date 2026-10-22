@@ -66,7 +66,9 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
     ProviderCapabilities Capabilities { get; }   // CanManageEntities, CanManageRules, CanPeek,
                                                  // CanReceiveSettle, SupportsSessions,
                                                  // SupportsScheduling, SupportsTransactions,
-                                                 // MaxMessageSizeBytes
+                                                 // SupportsDeadLetterSubQueue, SupportsDeferral,
+                                                 // SupportsSequenceNumbers, SupportsLockExpiry,
+                                                 // MaxMessageSizeBytes (architecture doc §4)
     IAsyncEnumerable<MessagingEntity> ListEntitiesAsync(...);
     Task<EntityRuntimeInfo> GetRuntimeInfoAsync(string path, ...);        // counts, size, status
     Task<IReadOnlyList<ToolboxMessage>> PeekAsync(PeekRequest req, ...);  // from seq, count, sub-queue

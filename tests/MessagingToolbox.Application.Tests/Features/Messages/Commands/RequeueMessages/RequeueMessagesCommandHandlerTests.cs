@@ -1,10 +1,12 @@
 using MessagingToolbox.Abstractions;
+using MessagingToolbox.Abstractions.Errors;
 using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Common;
 using MessagingToolbox.Application.Common.Dtos;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Features.Messages.Commands.RequeueMessages;
 using MessagingToolbox.Application.Services;
+using MessagingToolbox.Application.Tests.Common;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -25,6 +27,7 @@ public class RequeueMessagesCommandHandlerTests
     {
         _providerFactory = Substitute.For<IMessagingProviderFactory>();
         _provider = Substitute.For<IMessagingProvider>();
+        _provider.Capabilities.Returns(TestCapabilities.Full);
         _providerFactory.GetProviderAsync(ConnectionId, Arg.Any<CancellationToken>()).Returns(_provider);
         _connectionCatalog = Substitute.For<IConnectionCatalog>();
         _auditLog = Substitute.For<IAuditLog>();
@@ -183,4 +186,19 @@ public class RequeueMessagesCommandHandlerTests
             LockToken = "original-token",
             ApplicationProperties = new Dictionary<string, object?> { ["tenant"] = "tests" },
         };
+
+    [Fact]
+    public async Task Handle_RemoveOriginalsWithoutLockTokensOrSequenceNumbers_ThrowsBeforeSendingClones()
+    {
+        _provider.Capabilities.Returns(TestCapabilities.Full with { SupportsSequenceNumbers = false });
+        IReadOnlyList<MessageDto> messages = [CreateMessage("msg-1", 11)];
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => _sut.Handle(
+            new RequeueMessagesCommand(ConnectionId, "orders.dlq", MessageSubQueue.Active, "orders", messages, RemoveOriginals: true),
+            CancellationToken.None).AsTask());
+
+
+        await _provider.DidNotReceiveWithAnyArgs().SendAsync(default!, default!, default);
+    }
 }

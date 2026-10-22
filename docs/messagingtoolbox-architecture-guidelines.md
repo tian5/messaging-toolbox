@@ -82,17 +82,20 @@ provider can target (DevOps decision #3). **Domain** holds only the persisted to
 ```
 Abstractions/
   Messaging/
-    MessagingEntity.cs        # discriminated model: Queue | Topic | Subscription (path, kind, status)
+    MessagingEntity.cs        # discriminated model: Queue | Topic | Subscription | Exchange
+                              # (path, kind, status, PeekMode NonDestructive/Requeue — ADR 17)
     EntityRuntimeInfo.cs      # active/scheduled/dead-letter/transfer counts, size, timestamps;
                               # IsApproximate marks sampled counts that hit the cap;
                               # DeferredMessageCount (of the active ones) when sampled
     ToolboxMessage.cs         # body (byte[]), content type, typed system props, app props,
                               # settlement metadata (sequence number, State Active/Deferred/Scheduled,
-                              # lock token, delivery count, enqueued time, DLQ reason/description)
+                              # lock token, delivery count, enqueued time, DLQ reason/description),
+                              # RoutingKey, read-only BrokerProperties for display (ADR 17)
     SubscriptionRuleInfo.cs   # filter kind (SQL/correlation), expression, action
     ProviderCapabilities.cs   # record of flags, see below
     Enums.cs                  # EntityKind, MessageSubQueue (Active/Scheduled/DeadLetter/TransferDeadLetter),
-                              # MessageState, SettlementOperation, ReceiveMode, ProviderKind, MessagingEntityStatus
+                              # MessageState, SettlementOperation, ReceiveMode, ProviderKind, MessagingEntityStatus,
+                              # PeekMode
     PeekRequest.cs / ReceiveRequest.cs / SettleRequest.cs / SettleBySequenceRequest.cs
     ReceiveDeferredRequest.cs / DeferredMessageReference.cs
     EntityDefinition.cs / ResubmitOverrides.cs
@@ -113,17 +116,21 @@ Domain/
 ```
 
 ```csharp
-public record ProviderCapabilities(
-    bool CanManageEntities,        // create/update/delete queues, topics, subscriptions
-    bool CanManageRules,           // subscription filters/actions
-    bool CanPeek,                  // non-destructive inspection
-    bool CanReceiveSettle,         // peek-lock + complete/abandon/defer/dead-letter
-    bool SupportsSessions,
-    bool SupportsScheduling,
-    bool SupportsTransactions,
-    long MaxMessageSizeBytes)      // 256 KB on emulator, 100 MB premium ASB, etc.
+public sealed record ProviderCapabilities   // required init properties (ADR 17)
 {
-    string? ManagementUnavailableReason { get; init; } // why CanManageEntities is off, shown in the UI
+    bool CanManageEntities;            // create/update/delete queues, topics, subscriptions, exchanges
+    bool CanManageRules;               // routing rules: subscription filters/actions, exchange bindings
+    bool CanPeek;                      // inspection without consuming; cost per entity: MessagingEntity.PeekMode
+    bool CanReceiveSettle;             // settleable receive + complete/abandon (+ dead-letter/defer where supported)
+    bool SupportsSessions;
+    bool SupportsScheduling;
+    bool SupportsTransactions;
+    bool SupportsDeadLetterSubQueue;   // broker-managed DLQ per entity (the tree's DLQ node, "To DLQ")
+    bool SupportsDeferral;             // defer + receive deferred by sequence number (ADR 13)
+    bool SupportsSequenceNumbers;      // peek paging, live-watch cursor, settle/cancel by sequence number
+    bool SupportsLockExpiry;           // held messages expire and can be renewed (ADR 10)
+    long MaxMessageSizeBytes;          // 256 KB on emulator, 100 MB premium ASB, etc.
+    string? ManagementUnavailableReason; // optional: why CanManageEntities is off, shown in the UI
 }
 ```
 
@@ -144,7 +151,7 @@ capability is present and otherwise shows that reason.
 interfaces live in `Application/Core/Interfaces`.
 
 ```csharp
-public interface IMessagingProvider   // Abstractions
+public interface IMessagingProvider : IAsyncDisposable   // Abstractions
 {
     ProviderKind Kind { get; }
     ProviderCapabilities Capabilities { get; }
@@ -173,11 +180,17 @@ public interface IMessagingProvider   // Abstractions
         ToolboxMessage original, ResubmitOverrides overrides, CancellationToken ct);
 }
 
-public interface IMessagingProviderFactory
+public interface IMessagingProviderFactory   // implemented once, in Infrastructure (ADR 17)
 {
     // Resolves (and caches) the provider + underlying clients for a connection profile.
     Task<IMessagingProvider> GetProviderAsync(Guid connectionId, CancellationToken ct);
     Task DisposeAsync(Guid connectionId);   // dispose cached clients on profile change/removal
+}
+
+public interface IMessagingProviderBuilder   // one per broker, registered by its provider project
+{
+    ProviderKind Kind { get; }
+    Task<IMessagingProvider> CreateAsync(ConnectionInfo connection, CancellationToken ct);
 }
 
 public interface IToolboxDbContext : IAsyncDisposable   // single context — the read/readonly split was dropped (ADR 7)
@@ -271,7 +284,7 @@ Providers.AzureServiceBus/
   AzureServiceBusManagement.cs        # ServiceBusAdministrationClient wrapper (cloud + emulator)
   IAzureServiceBusManagement.cs       # test seam for the management wrapper
   AzureServiceBusMessageMapper.cs     # SDK message <-> ToolboxMessage mapping
-  MessagingProviderFactory.cs         # singleton cache of providers/clients per connection
+  AzureServiceBusProviderBuilder.cs   # IMessagingProviderBuilder for ProviderKind.AzureServiceBus
   ServiceBusEntityPath.cs             # "{topic}/subscriptions/{name}" path splitting
   Telemetry.cs                        # shared ActivitySource
   Emulator/
@@ -362,7 +375,9 @@ connection profiles, canned messages, and the audit log of destructive operation
 `ChangeTracker.Entries<EntityBase>()`, driven by the injected `TimeProvider`; `DateTimeOffset`
 values go through a binary converter (SQLite limitation workaround). Handlers query through the single `IToolboxDbContext`
 directly (ADR 7), each operation on its own context from `IToolboxDbContextFactory` (ADR 11). `ConnectionCatalog` merges config-seeded (Aspire/env) and saved connections at
-read time. Connection strings are stored protected (ASP.NET Core Data Protection, keys persisted
+read time. `Messaging/MessagingProviderFactory` is the singleton provider cache: it dispatches
+creation to the `IMessagingProviderBuilder` registered for the connection's kind (each provider
+project adds its builder with `TryAddEnumerable`) and owns eviction and disposal (ADR 17). Connection strings are stored protected (ASP.NET Core Data Protection, keys persisted
 under the data directory), never logged. `ToolboxDbInitializer` creates the schema on startup
 (`EnsureCreated` for now — real migrations once the schema stabilizes) and never takes the host
 down on failure.
@@ -624,3 +639,25 @@ Aspire.Hosting/
     dead-letter queue. Live watch (ADR 15) stays the opt-in way to see new arrivals. Rejected:
     re-peeking only when the grid was loaded by peek (still an unrequested load), and an
     automatic reload behind a setting (one more toggle for behavior nobody asked for).
+17. **Provider builders, a neutral factory, and capability flags for broker-specific features** —
+    *(extends ADR 5 for a second broker.)* The provider factory lived in the Azure Service Bus
+    project, switched on `ProviderKind`, and was registered with `TryAddSingleton`, so a second
+    provider could not plug in. The cache moved unchanged to Infrastructure
+    (`Messaging/MessagingProviderFactory`); each provider contributes an
+    `IMessagingProviderBuilder` for its kind, and `IMessagingProvider` is `IAsyncDisposable` so the
+    cache no longer knows provider types. Features the contract had silently assumed are now
+    flags — `SupportsDeadLetterSubQueue`, `SupportsDeferral`, `SupportsSequenceNumbers`,
+    `SupportsLockExpiry` — and the tree, handlers and UI check them: the DLQ node, defer,
+    settle/remove by sequence number, the from-sequence control, lock renewal, and live watch.
+    Handlers that would otherwise act half-way (a requeue that sends clones but can't remove the
+    originals) check before the first broker call. `ProviderCapabilities` became a record of
+    `required init` properties, since twelve positional booleans were no longer readable.
+    Browsing cost is per entity, not per provider (`MessagingEntity.PeekMode`):
+    `NonDestructive` keeps the "browsing is side-effect free" rule; `Requeue` marks brokers
+    without a read-only browse, where a peek takes and requeues messages. A `Requeue` peek runs
+    only on an explicit Load, with the cost disclosed next to the button, and never from live
+    watch or count sampling. `EntityKind.Exchange` (routes, holds no messages),
+    `ToolboxMessage.RoutingKey` and read-only `BrokerProperties` give non-ASB brokers a place for
+    their routing and system metadata without more ASB-shaped top-level fields. Rejected: a
+    provider-kind switch in the UI (ADR 5), and one capability record per broker (every
+    consumer would need to know every broker).

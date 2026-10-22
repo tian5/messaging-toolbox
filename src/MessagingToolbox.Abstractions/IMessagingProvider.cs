@@ -6,7 +6,7 @@ namespace MessagingToolbox.Abstractions;
 /// The provider contract every broker plugs into. Implementations translate SDK exceptions
 /// into the typed errors in <see cref="Errors"/> and honor <see cref="Capabilities"/>.
 /// </summary>
-public interface IMessagingProvider
+public interface IMessagingProvider : IAsyncDisposable
 {
     ProviderKind Kind { get; }
 

@@ -31,7 +31,7 @@
         else
         {
             <EntityDetails Node="ActiveConnectionWorkspace.SelectedNode"
-                           CanWatch="CanPeek"
+                           CanWatch="CanWatch"
                            Watched="IsSelectedNodeWatched"
                            ToggleWatch="ToggleWatch" />
 
@@ -40,6 +40,8 @@
                 <PeekControls Workspace="ActiveConnectionWorkspace"
                               IsScheduledNode="IsScheduledNode"
                               RequiresSession="@(ActiveConnectionWorkspace.SelectedNode?.RequiresSession == true)"
+                              Capabilities="Capabilities"
+                              PeekMode="@(ActiveConnectionWorkspace.SelectedNode?.PeekMode ?? PeekMode.NonDestructive)"
                               SubQueueLabel="@SubQueueLabel"
                               EntityBusy="IsSelectedEntityBusy"
                               EntityLoading="IsSelectedEntityLoading"
@@ -83,7 +85,7 @@
 
                 @if (ActiveConnectionWorkspace.SelectedLockTokens.Count > 0)
                 {
-                    <SettleBar Count="ActiveConnectionWorkspace.SelectedLockTokens.Count" CanDeadLetter="!IsDeadLetterNode" Disabled="IsSelectedEntityBusy" OnSettle="SettleAsync" />
+                    <SettleBar Count="ActiveConnectionWorkspace.SelectedLockTokens.Count" CanDeadLetter="!IsDeadLetterNode" CanDefer="@(Capabilities?.SupportsDeferral != false)" Disabled="IsSelectedEntityBusy" OnSettle="SettleAsync" />
                 }
 
                 @if (ActiveConnectionWorkspace.IsStale)
@@ -126,6 +128,7 @@
                                  OriginalLockToken="@ActiveConnectionWorkspace.OriginalLockToken"
                                  OriginalSequenceNumber="ActiveConnectionWorkspace.OriginalSequenceNumber"
                                  RequiresSession="@(ActiveConnectionWorkspace.SelectedNode?.RequiresSession == true)"
+                                 Capabilities="Capabilities"
                                  OnSent="OnComposerSentAsync" />
             }
         }

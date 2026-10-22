@@ -3,6 +3,7 @@ using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Common.Dtos;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Features.Explorer.Queries.GetEntityTree;
+using MessagingToolbox.Application.Tests.Common;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -13,15 +14,7 @@ public class GetEntityTreeQueryHandlerTests
 {
     private static readonly Guid ConnectionId = Guid.NewGuid();
 
-    private static readonly ProviderCapabilities FullCapabilities = new(
-        CanManageEntities: true,
-        CanManageRules: true,
-        CanPeek: true,
-        CanReceiveSettle: true,
-        SupportsSessions: true,
-        SupportsScheduling: true,
-        SupportsTransactions: true,
-        MaxMessageSizeBytes: 256 * 1024);
+    private static readonly ProviderCapabilities FullCapabilities = TestCapabilities.Full;
 
     private readonly IMessagingProviderFactory _providerFactory;
     private readonly IMessagingProvider _provider;
@@ -131,6 +124,43 @@ public class GetEntityTreeQueryHandlerTests
         EntityTreeNodeDto node = tree.ShouldHaveSingleItem();
         node.Children.Count.ShouldBe(2);
         node.Children.ShouldNotContain(child => child.SubQueue == MessageSubQueue.Scheduled);
+    }
+
+    [Fact]
+    public async Task Handle_DeadLetterSubQueueUnsupported_OmitsDeadLetterNode()
+    {
+        _provider.Capabilities.Returns(FullCapabilities with { SupportsScheduling = false, SupportsDeadLetterSubQueue = false });
+
+        MessagingEntity queue = new() { Path = "queues/orders", Name = "orders", Kind = EntityKind.Queue, PeekMode = PeekMode.Requeue };
+        _provider.ListEntitiesAsync(Arg.Any<CancellationToken>())
+            .Returns(TestAsyncEnumerable.Of(queue));
+
+
+        IReadOnlyList<EntityTreeNodeDto> tree = await _sut.Handle(new GetEntityTreeQuery(ConnectionId), CancellationToken.None);
+
+
+        EntityTreeNodeDto node = tree.ShouldHaveSingleItem();
+        EntityTreeNodeDto active = node.Children.ShouldHaveSingleItem();
+        active.SubQueue.ShouldBe(MessageSubQueue.Active);
+        active.PeekMode.ShouldBe(PeekMode.Requeue);
+    }
+
+    [Fact]
+    public async Task Handle_Exchanges_RendersThemAfterQueuesWithoutChildren()
+    {
+        MessagingEntity queue = new() { Path = "queues/orders", Name = "orders", Kind = EntityKind.Queue };
+        MessagingEntity exchange = new() { Path = "exchanges/events", Name = "events", Kind = EntityKind.Exchange };
+        _provider.ListEntitiesAsync(Arg.Any<CancellationToken>())
+            .Returns(TestAsyncEnumerable.Of(exchange, queue));
+
+
+        IReadOnlyList<EntityTreeNodeDto> tree = await _sut.Handle(new GetEntityTreeQuery(ConnectionId), CancellationToken.None);
+
+
+        tree.Count.ShouldBe(2);
+        tree[0].Kind.ShouldBe(EntityKind.Queue);
+        tree[1].Kind.ShouldBe(EntityKind.Exchange);
+        tree[1].Children.ShouldBeEmpty();
     }
 
     private static void AssertSubQueueChildren(EntityTreeNodeDto entityNode)

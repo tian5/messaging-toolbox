@@ -62,12 +62,14 @@ Layer responsibilities:
 - **`Application/`** — CQRS use cases, one folder per feature under `Features/` (Connections,
   Explorer, Messages, Templates, Audit, Management), subfolder per operation
   (`Queries/{Op}/{Op}Query.cs` + `{Op}QueryHandler.cs`). Interfaces in `Core/Interfaces/`
-  (`IToolboxDbContext` + `IToolboxDbContextFactory`, `IMessagingProviderFactory`, `IConnectionCatalog`,
+  (`IToolboxDbContext` + `IToolboxDbContextFactory`, `IMessagingProviderFactory`,
+  `IMessagingProviderBuilder` (one per broker), `IConnectionCatalog`,
   `IConnectionStringProtector`, `IMessageTemplateEngine`), DTOs (records) in `Common/Dtos/`,
   shared services in `Services/`. Handlers never reference ASP.NET or broker SDKs.
 - **`Infrastructure/`** — EF Core + SQLite (`ToolboxDbContext`, `EnsureCreated` for now),
   ASP.NET Core Data Protection for connection strings at rest, `ConnectionCatalog` merging
-  config-seeded (Aspire/env) and saved connections, `ToolboxDbInitializer`.
+  config-seeded (Aspire/env) and saved connections, `ToolboxDbInitializer`, and the singleton
+  `MessagingProviderFactory` that caches providers and dispatches to the builder for each kind.
 - **`Providers.AzureServiceBus/`** — one project for cloud + emulator (mode comes from the
   connection profile). Emulator quirks stay here: admin-endpoint discovery (host-supplied `AdminEndpoint`, else `sb://host:5300`, re-probed on failure)
   with Aspire-modeled entities as offline fallback, `PeekRuntimeCountSampler` for runtime

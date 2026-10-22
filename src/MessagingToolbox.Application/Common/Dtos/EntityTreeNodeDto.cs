@@ -25,6 +25,9 @@ public sealed record EntityTreeNodeDto
     /// <summary>The entity requires sessions (as far as the provider knows); set on entity and sub-queue nodes alike.</summary>
     public bool RequiresSession { get; init; }
 
+    /// <summary>What a peek of this entity costs; set on entity and sub-queue nodes alike.</summary>
+    public PeekMode PeekMode { get; init; } = PeekMode.NonDestructive;
+
     public EntityRuntimeInfoDto? RuntimeInfo { get; init; }
 
     public IReadOnlyList<EntityTreeNodeDto> Children { get; init; } = [];

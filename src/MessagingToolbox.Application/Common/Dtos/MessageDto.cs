@@ -34,6 +34,8 @@ public sealed record MessageDto
 
     public DateTimeOffset? ScheduledEnqueueTime { get; init; }
 
+    public string? RoutingKey { get; init; }
+
     public long? SequenceNumber { get; init; }
 
     /// <summary>Deferred messages are skipped by receives; they come back only by sequence number.</summary>
@@ -56,5 +58,9 @@ public sealed record MessageDto
     public DateTimeOffset? LockedUntil { get; init; }
 
     public IReadOnlyDictionary<string, object?> ApplicationProperties { get; init; } =
+        new Dictionary<string, object?>();
+
+    /// <summary>Read-only broker system properties (display only; never sent or imported).</summary>
+    public IReadOnlyDictionary<string, object?> BrokerProperties { get; init; } =
         new Dictionary<string, object?>();
 }

@@ -6,7 +6,7 @@
         <option value="@MessageLoadMode.ReceiveAndDelete">Receive &amp; delete</option>
     </select>
     <label title="How many messages to fetch; the provider pages through the broker (max 5000)">Max <InputNumber @bind-Value="Workspace.MaxMessages" min="1" max="5000" /></label>
-    @if (Workspace.ViewMode == MessageLoadMode.Peek)
+    @if (Workspace.ViewMode == MessageLoadMode.Peek && Capabilities?.SupportsSequenceNumbers != false)
     {
         <label>From seq <InputNumber @bind-Value="Workspace.FromSequence" /></label>
     }
@@ -22,7 +22,7 @@
             }
         </datalist>
     }
-    @if (Workspace.ViewMode == MessageLoadMode.Settleable)
+    @if (Workspace.ViewMode == MessageLoadMode.Settleable && Capabilities?.SupportsLockExpiry != false)
     {
         <label title="Locks are renewed in the background for this long after the receive; entity lock duration applies when 0 (max 300 s)">Renew locks (s) <InputNumber @bind-Value="Workspace.LockRenewalSeconds" min="0" max="300" /></label>
         @if (Workspace.LockRenewalCount > 0)
@@ -34,6 +34,14 @@
         @(EntityLoading ? "Loading…" : "Load")
     </button>
     <span class="muted">@SubQueueLabel</span>
+    @if (Workspace.ViewMode == MessageLoadMode.Peek && PeekMode == PeekMode.Requeue)
+    {
+        @* ADR 17: no read-only browse on this broker, so peek is only ever this explicit Load. *@
+        <p class="hint" role="note">
+            This broker has no read-only browse. Loading takes the messages briefly and requeues them:
+            they are marked redelivered, invisible to consumers meanwhile, and may change order.
+        </p>
+    }
 </div>
 
 @code {
@@ -47,8 +55,16 @@
     [Parameter]
     public bool RequiresSession { get; set; }
 
-    private bool ShowSessionFilter
-        => RequiresSession || !string.IsNullOrEmpty(Workspace.SessionId) || Workspace.LoadedSessionIds.Count > 0;
+    /// <summary>The active connection's capabilities; null while unknown (everything is offered).</summary>
+    [Parameter]
+    public ProviderCapabilities? Capabilities { get; set; }
+
+    /// <summary>What a peek of the selected entity costs; a requeue-peek is disclosed next to Load.</summary>
+    [Parameter]
+    public PeekMode PeekMode { get; set; }
+
+    private bool ShowSessionFilter => Capabilities?.SupportsSessions != false
+        && (RequiresSession || !string.IsNullOrEmpty(Workspace.SessionId) || Workspace.LoadedSessionIds.Count > 0);
 
     [Parameter]
     public string SubQueueLabel { get; set; } = string.Empty;
