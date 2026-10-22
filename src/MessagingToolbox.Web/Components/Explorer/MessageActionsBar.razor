@@ -11,7 +11,7 @@
         Import
         <InputFile OnChange="Import" accept=".json" disabled="@EntityBusy" />
     </label>
-    @if (!IsScheduledNode)
+    @if (!IsScheduledNode && CanPurge)
     {
         <button type="button" class="danger" @onclick="Purge" disabled="@EntityBusy" title="Purge this sub-queue (FR-5.2)">Purge…</button>
     }
@@ -30,8 +30,11 @@
         <button type="button" @onclick="Requeue" disabled="@(Workspace.Selection.Count == 0 || EntityBusy)"
                 title="Send copies of the selected messages to a queue, topic or exchange of your choice (FR-4.6)">@ResubmitLabel (@Workspace.Selection.Count)</button>
     }
-    <button type="button" class="danger" @onclick="Delete" disabled="@(Workspace.Selection.Count == 0 || IsReceiveAndDeleteLoaded || EntityBusy)"
-            title="@(IsReceiveAndDeleteLoaded ? "Messages were already deleted by receive & delete" : "Permanently delete the selected messages (FR-5.3)")">Delete (@Workspace.Selection.Count)</button>
+    @if (CanDelete)
+    {
+        <button type="button" class="danger" @onclick="Delete" disabled="@(Workspace.Selection.Count == 0 || IsReceiveAndDeleteLoaded || EntityBusy)"
+                title="@(IsReceiveAndDeleteLoaded ? "Messages were already deleted by receive & delete" : "Permanently delete the selected messages (FR-5.3)")">Delete (@Workspace.Selection.Count)</button>
+    }
 </div>
 
 @code {
@@ -40,6 +43,14 @@
 
     [Parameter]
     public bool IsScheduledNode { get; set; }
+
+    /// <summary>The entity can be purged (a stream, for one, can't).</summary>
+    [Parameter]
+    public bool CanPurge { get; set; } = true;
+
+    /// <summary>The entity's messages can be removed one by one (a stream's can't).</summary>
+    [Parameter]
+    public bool CanDelete { get; set; } = true;
 
     [Parameter]
     public bool CanDeadLetterSelection { get; set; }

@@ -88,6 +88,9 @@ public partial class Home : IDisposable
         && ActiveConnectionWorkspace.SelectedNode is { PeekMode: PeekMode.NonDestructive }
         && Capabilities?.SupportsSequenceNumbers != false;
 
+    // ADR 20: the entity narrows what the connection allows (a RabbitMQ stream can't be consumed away).
+    private EntityOperations SelectedOperations => ActiveConnectionWorkspace.SelectedNode?.Operations ?? EntityOperations.All;
+
     private bool CanSend => ActiveConnectionWorkspace.SelectedNode is { SubQueue: MessageSubQueue.Active, Kind: EntityKind.Queue or EntityKind.Topic or EntityKind.Exchange };
 
     private bool IsScheduledNode => ActiveConnectionWorkspace.SelectedNode?.SubQueue == MessageSubQueue.Scheduled;
@@ -419,9 +422,18 @@ public partial class Home : IDisposable
         workspace.StashCurrentNode();
 
         workspace.SelectedNode = node;
+        workspace.ViewMode = AllowedViewMode(workspace.ViewMode, node.Operations);
         workspace.ClearRepairState();
         workspace.RestoreForSelectedNode();
     }
+
+    // The load mode is per connection, so a mode the newly selected entity refuses falls back to peek.
+    private static MessageLoadMode AllowedViewMode(MessageLoadMode mode, EntityOperations operations) => mode switch
+    {
+        MessageLoadMode.Settleable when !operations.CanReceiveSettle => MessageLoadMode.Peek,
+        MessageLoadMode.ReceiveAndDelete when !operations.CanReceive => MessageLoadMode.Peek,
+        _ => mode,
+    };
 
     private async Task LoadMessagesAsync()
     {

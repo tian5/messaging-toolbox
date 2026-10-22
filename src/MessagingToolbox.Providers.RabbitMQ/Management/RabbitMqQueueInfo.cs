@@ -29,6 +29,22 @@ public sealed record RabbitMqQueueInfo
     [JsonPropertyName("state")]
     public string? State { get; init; }
 
+    [JsonPropertyName("durable")]
+    public bool? Durable { get; init; }
+
+    [JsonPropertyName("auto_delete")]
+    public bool? AutoDelete { get; init; }
+
+    [JsonPropertyName("exclusive")]
+    public bool? Exclusive { get; init; }
+
+    [JsonPropertyName("consumers")]
+    public long? Consumers { get; init; }
+
+    /// <summary>Name of the policy applied to the queue, if any.</summary>
+    [JsonPropertyName("policy")]
+    public string? Policy { get; init; }
+
     [JsonPropertyName("arguments")]
     public Dictionary<string, JsonElement>? Arguments { get; init; }
 

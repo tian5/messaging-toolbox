@@ -83,7 +83,11 @@ provider can target (DevOps decision #3). **Domain** holds only the persisted to
 Abstractions/
   Messaging/
     MessagingEntity.cs        # discriminated model: Queue | Topic | Subscription | Exchange
-                              # (path, kind, status, PeekMode NonDestructive/Requeue — ADR 17)
+                              # (path, kind, status, PeekMode NonDestructive/Requeue — ADR 17);
+                              # display-only TypeName (broker flavour: "stream", "topic", …) and
+                              # Properties (EntityProperty: group, label, formatted value, raw key)
+    EntityProperty.cs / EntityPropertyFormat.cs  # display-only entity settings + shared formatting
+    EntityOperations.cs       # per-entity narrowing of the capabilities (receive, settle, purge) — ADR 20
     EntityRuntimeInfo.cs      # active/scheduled/dead-letter/transfer counts, size, timestamps;
                               # IsApproximate marks sampled counts that hit the cap;
                               # DeferredMessageCount (of the active ones) when sampled
@@ -406,6 +410,16 @@ Providers.RabbitMQ/
   is released (nack with requeue, then close), and so is every held channel on dispose. A
   dead-lettered message reports `DeadLetterSourcePath` from `x-first-death-queue`, the default
   target of a resubmit; `PrepareResubmitAsync` clones the typed and application properties only.
+- **Entity details:** the queue and exchange type (classic/quorum/stream, direct/topic/…) is
+  reported as `MessagingEntity.TypeName`; durable/auto-delete/exclusive, the `x-*` arguments and
+  the effective policy (one label table, so `x-message-ttl` and a policy's `message-ttl` read the
+  same), consumers and unacknowledged counts as `Properties`. Both are display-only: the tree
+  and details panel render them and never branch on them, so behaviour stays on `PeekMode` and
+  the capability flags (ADR 5/17). Azure Service Bus fills `Properties` from the administration
+  client (lock duration, TTL, max size, …) and leaves `TypeName` null.
+- **Streams (ADR 20):** report `EntityOperations` without receive, settle-later and purge, with
+  the reason as the hint; the UI offers only peek and send, and the provider still refuses the
+  rest.
 - **Send:** queues through the default exchange, exchanges with `ToolboxMessage.RoutingKey`;
   publisher confirms plus `mandatory`, so an unroutable message is an error, not a silent drop.
 
@@ -753,3 +767,23 @@ Aspire.Hosting/
     again (a re-peek isn't free on every broker). Rejected: a virtual DLQ child node (wrong for
     shared DLQs, empty for ambiguous ones), and dead-lettering by republishing with a reason
     header (no `x-death`, so not what applications see from real dead-lettering).
+20. **Per-entity operations narrow the connection's capabilities; entity details are
+    display-only** — Capabilities describe a connection, but entities on one connection can
+    differ: a RabbitMQ stream is a queue that can be peeked and sent to, but not consumed away,
+    settled or purged. `MessagingEntity.Operations` (`EntityOperations`: `CanReceive`,
+    `CanReceiveSettle`, `CanPurge`, plus a `Reason` shown as the hint) can only narrow: an
+    operation is offered when the capabilities *and* the entity allow it, and the default allows
+    everything, so a provider that never sets it behaves as before. The UI gates load modes, purge
+    and delete on it; handlers don't, because they receive a path rather than the entity and a
+    lookup would cost a discovery round-trip per command, so the provider stays the backstop and
+    still refuses what it can't do. Discovery that can't tell (RabbitMQ without the management API)
+    reports `All`. Alongside it, `MessagingEntity.TypeName` (the broker's own word for the entity,
+    e.g. `stream`, `quorum`, `topic`) and `Properties` (`EntityProperty`: group, label, value
+    formatted by the provider, raw key) carry broker detail for display only; the core renders
+    them and never branches on them. `EntityKind` stays a small closed set of roles the core reasons
+    about. Rejected: an `EntityKind.Stream` (a stream is still a queue, and kinds would multiply
+    per broker), free-string kinds with provider constants (Web can't reference providers, so it
+    would compare literals), and a full `ProviderCapabilities` per entity (most flags are
+    connection-wide and the precedence is unclear). Moving the existing `Kind`-based gating in the
+    Web layer (exchanges and topics can't be peeked, subscriptions can't be sent to) onto
+    provider-set operations is a follow-up.

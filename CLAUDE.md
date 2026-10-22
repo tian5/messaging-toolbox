@@ -26,6 +26,8 @@ win. Then fix the docs.
    `ProviderCapabilities` flag and set it in every provider's capability profile
    (`AzureServiceBusCapabilities`: cloud vs emulator).
    The provider throws `NotSupportedByProviderException` when the flag is absent.
+   When entities on one connection differ (a RabbitMQ stream), narrow per entity with
+   `MessagingEntity.Operations` instead of switching on `Kind` or `TypeName` in Web (ADR 20).
 3. **Provider.** Implement it in `Providers.AzureServiceBus`. Translate every SDK exception
    through `ServiceBusExceptionTranslator`. Emulator quirks stay in this project, under
    `Emulator/`.

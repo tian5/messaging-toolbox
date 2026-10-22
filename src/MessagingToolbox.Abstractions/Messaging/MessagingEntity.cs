@@ -13,6 +13,14 @@ public sealed record MessagingEntity
 
     public required EntityKind Kind { get; init; }
 
+    /// <summary>
+    /// The broker's own name for the entity's flavour, for display only: RabbitMQ <c>classic</c>,
+    /// <c>quorum</c> or <c>stream</c> queues and <c>direct</c>/<c>topic</c>/… exchanges. Null when
+    /// the broker has a single flavour of <see cref="Kind"/>. Behaviour never depends on it — it
+    /// comes from <see cref="PeekMode"/> and the provider capabilities.
+    /// </summary>
+    public string? TypeName { get; init; }
+
     /// <summary>Path of the owning topic for subscriptions; null for queues and topics.</summary>
     public string? ParentPath { get; init; }
 
@@ -33,6 +41,12 @@ public sealed record MessagingEntity
     /// Null when the entity has none, or when the broker uses a dead-letter sub-queue instead.
     /// </summary>
     public string? DeadLetterExchange { get; init; }
+
+    /// <summary>What this entity allows beyond the connection's capabilities; only ever narrows them.</summary>
+    public EntityOperations Operations { get; init; } = EntityOperations.All;
+
+    /// <summary>Broker-specific settings (TTL, max size, arguments, …), formatted for display.</summary>
+    public IReadOnlyList<EntityProperty> Properties { get; init; } = [];
 
     /// <summary>Runtime counts/sizes when the provider can obtain them; null otherwise.</summary>
     public EntityRuntimeInfo? RuntimeInfo { get; init; }

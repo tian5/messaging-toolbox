@@ -14,8 +14,35 @@
                 @(Watched ? "Watching" : "Watch")
             </button>
         }
+        @if (Node.Properties.Count > 0)
+        {
+            <button type="button" class="properties-toggle @(_showProperties ? "expanded" : null)"
+                    aria-expanded="@(_showProperties ? "true" : "false")" title="Broker-specific settings of this entity"
+                    @onclick="() => _showProperties = !_showProperties">
+                <span class="chevron" aria-hidden="true"></span>
+                Properties (@Node.Properties.Count)
+            </button>
+        }
     </h2>
     <p class="muted path">@Node.Path</p>
+    @* Broker-specific settings, formatted by the provider: rendered as-is, never interpreted. *@
+    @if (_showProperties && Node.Properties.Count > 0)
+    {
+        <div class="entity-properties">
+            @foreach (IGrouping<string, EntityProperty> group in Node.Properties.GroupBy(property => property.Group))
+            {
+                <section>
+                    <h4>@group.Key</h4>
+                    <dl class="props">
+                        @foreach (EntityProperty property in group)
+                        {
+                            <div><dt title="@(property.Key ?? property.Name)">@property.Name</dt><dd>@property.Value</dd></div>
+                        }
+                    </dl>
+                </section>
+            }
+        </div>
+    }
 
     @if (Node.RuntimeInfo is { } info)
     {
@@ -67,7 +94,14 @@
     [Parameter]
     public EventCallback ToggleWatch { get; set; }
 
-    private string KindLabel => Node.IsSubQueueNode
+    // Survives switching entities, so the panel stays open while comparing settings.
+    private bool _showProperties;
+
+    private string KindLabel => Node.IsSubQueueNode || Node.TypeName is null
+        ? BaseKindLabel
+        : $"{Node.TypeName} {BaseKindLabel}";
+
+    private string BaseKindLabel => Node.IsSubQueueNode
         ? Node.SubQueue switch
         {
             MessageSubQueue.Scheduled => "scheduled messages",

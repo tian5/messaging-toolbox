@@ -19,7 +19,7 @@ public class RabbitMqManagementClientTests
     [Fact]
     public async Task ListQueuesAsync_DefaultVhost_EscapesVhostAndMapsColumns()
     {
-        _handler.Respond("""[{"name":"orders","type":"quorum","messages":3,"messages_ready":2,"messages_unacknowledged":1},{"name":"activity","type":"stream"}]""");
+        _handler.Respond("""[{"name":"orders","type":"quorum","messages":3,"messages_ready":2,"messages_unacknowledged":1,"durable":true,"consumers":2,"policy":"ttl"},{"name":"activity","type":"stream"}]""");
 
 
         IReadOnlyList<RabbitMqQueueInfo> queues = await _sut.ListQueuesAsync(CancellationToken.None);
@@ -30,6 +30,9 @@ public class RabbitMqManagementClientTests
         queues.Count.ShouldBe(2);
         queues[0].Messages.ShouldBe(3);
         queues[0].IsStream.ShouldBeFalse();
+        queues[0].Durable.ShouldBe(true);
+        queues[0].Consumers.ShouldBe(2);
+        queues[0].Policy.ShouldBe("ttl");
         queues[1].IsStream.ShouldBeTrue();
         queues[1].Messages.ShouldBeNull();
     }

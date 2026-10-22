@@ -37,6 +37,10 @@
                     @onclick="() => SelectedChanged.InvokeAsync(node)">
                 <span class="icon">@Icon(node)</span>
                 <span class="label">@node.Name</span>
+                @if (node.TypeName is { } typeName && !node.IsSubQueueNode)
+                {
+                    <span class="type-tag" title="@($"{typeName} {node.Kind.ToString().ToLowerInvariant()}")">@typeName</span>
+                }
                 @if (node.RequiresSession && !node.IsSubQueueNode)
                 {
                     <span class="session-tag" title="Requires sessions: receives lock one session at a time">sessions</span>
@@ -75,11 +79,12 @@
     private static string NodeKey(EntityTreeNodeDto node)
         => $"{node.Path}|{node.SubQueue}|{node.Kind}|{node.IsSubQueueNode}";
 
-    // Sub-queue nodes always show their count when one is available, right-aligned after the name.
+    // Sub-queue nodes always show their count when one is available, right-aligned after the name;
+    // so do leaf entities with counts, whose broker has no sub-queues (their messages are the active ones).
     // Counts are exact; only a sample that hit the provider's bound renders with a "+" suffix.
     private static string? CountText(EntityTreeNodeDto node)
     {
-        if (!node.IsSubQueueNode)
+        if (!node.IsSubQueueNode && (node.Children.Count > 0 || node.RuntimeInfo is null))
         {
             return null;
         }

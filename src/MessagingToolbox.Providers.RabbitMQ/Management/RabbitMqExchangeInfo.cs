@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace MessagingToolbox.Providers.RabbitMQ.Management;
@@ -15,4 +16,13 @@ public sealed record RabbitMqExchangeInfo
 
     [JsonPropertyName("internal")]
     public bool Internal { get; init; }
+
+    [JsonPropertyName("durable")]
+    public bool? Durable { get; init; }
+
+    [JsonPropertyName("auto_delete")]
+    public bool? AutoDelete { get; init; }
+
+    [JsonPropertyName("arguments")]
+    public Dictionary<string, JsonElement>? Arguments { get; init; }
 }

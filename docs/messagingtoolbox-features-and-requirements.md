@@ -116,10 +116,15 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 ### FR-2 Entity explorer
 - FR-2.1 Tree: connection → queues | topics → subscriptions; every message-bearing entity gets
   **Active / Scheduled / Dead-letter** child nodes (Scheduled only when the provider declares
-  `SupportsScheduling`). The transfer-DLQ is surfaced as a count in the details view, not as a
+  `SupportsScheduling`, Dead-letter only with `SupportsDeadLetterSubQueue`). When neither applies
+  (RabbitMQ), an Active child would only repeat its entity, so the entity is a leaf node that
+  shows its own count. The transfer-DLQ is surfaced as a count in the details view, not as a
   tree node.
 - FR-2.2 Per-entity runtime info: active / scheduled / dead-letter / transfer counts, size,
-  status, timestamps. Counts always refresh after mutations; a manual Refresh button in the
+  status, timestamps. The broker's entity flavour (e.g. a RabbitMQ `stream` or `quorum` queue)
+  shows as a tag in the tree and in the details header; a collapsible **Properties** section
+  lists the broker-specific settings (TTL, max size, lock duration, arguments, policy, …) as
+  the provider formats them. Counts always refresh after mutations; a manual Refresh button in the
   sidebar reloads the tree on demand. Auto-refresh is opt-in — off by default
   (`ToolboxOptions:RefreshIntervalSeconds` = 0) — via the Auto toggle (10 s fallback when the
   option is 0) or a configured interval. On connections without a
@@ -241,7 +246,9 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
   passed in by Aspire. *(Done, Phase 4a.)*
 - FR-9.2 Explorer: queues (classic, quorum, stream) and user exchanges from the management API,
   with counts; without the API, config-listed queues counted over AMQP and the reason shown.
-  Dead-letter queues are ordinary queues (no DLQ sub-node). *(Done, Phase 4a.)*
+  Dead-letter queues are ordinary queues (no DLQ sub-node). Queue and exchange types are tagged
+  in the tree; durable/auto-delete/exclusive, arguments, policy and consumers are listed under
+  Properties. Streams offer peek and send only, with the reason shown (ADR 20). *(Done, Phase 4a.)*
 - FR-9.3 Peek: classic and quorum queues by get + nack-requeue, only on an explicit Load and
   disclosed next to it (ADR 18); streams read from their first offset without side effects.
   Death history (`x-death`, `x-first-death-*`) and delivery counts shown as broker properties.

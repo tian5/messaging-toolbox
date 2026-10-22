@@ -47,6 +47,15 @@ public sealed class RabbitMqProvider : IMessagingProvider
     // Peeks and receives on one queue are serialized: two concurrent requeue-peeks would each take
     // part of the queue and both report an incomplete view.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _queueGates = new(StringComparer.Ordinal);
+    // A stream is an append-only log: it can be read from any offset, but not consumed away.
+    private static readonly EntityOperations StreamOperations = new()
+    {
+        CanReceive = false,
+        CanReceiveSettle = false,
+        CanPurge = false,
+        Reason = "Streams are append-only logs: messages can't be received, settled or purged — peek reads them without side effects.",
+    };
+
     private readonly ConcurrentDictionary<string, bool> _streamQueues = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string?> _deadLetterExchanges = new(StringComparer.Ordinal);
     private readonly HeldDeliveries _held;
@@ -415,9 +424,12 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 Path = RabbitMqEntityPath.ForQueue(queue.Name),
                 Name = queue.Name,
                 Kind = EntityKind.Queue,
+                TypeName = queue.Type,
                 Status = queue.State is null or "running" ? MessagingEntityStatus.Active : MessagingEntityStatus.Unknown,
                 PeekMode = queue.IsStream ? PeekMode.NonDestructive : PeekMode.Requeue,
                 DeadLetterExchange = queue.DeadLetterExchange,
+                Operations = queue.IsStream ? StreamOperations : EntityOperations.All,
+                Properties = RabbitMqEntityProperties.ForQueue(queue),
                 RuntimeInfo = ToRuntimeInfo(queue, ready),
             });
         }
@@ -432,7 +444,9 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 Path = RabbitMqEntityPath.ForExchange(exchange.Name),
                 Name = exchange.Name,
                 Kind = EntityKind.Exchange,
+                TypeName = exchange.Type,
                 Status = MessagingEntityStatus.Active,
+                Properties = RabbitMqEntityProperties.ForExchange(exchange),
             });
         }
 

@@ -56,9 +56,15 @@ public sealed class GetEntityTreeQueryHandler : IRequestHandler<GetEntityTreeQue
     // FR-2.1: active, scheduled, and dead-letter messages show as equivalent child nodes of their
     // message-bearing entity, so every state is browsable even when no counts are available. The
     // scheduled and dead-letter nodes are capability-driven — brokers without scheduling or a
-    // dead-letter sub-queue never render them (ADR 5).
+    // dead-letter sub-queue never render them (ADR 5). With nothing beyond active messages
+    // (RabbitMQ) an "Active" child would only repeat its entity, so the entity stays a leaf.
     private static IReadOnlyList<EntityTreeNodeDto> SubQueueChildren(MessagingEntity entity, ProviderCapabilities capabilities)
     {
+        if (!capabilities.SupportsScheduling && !capabilities.SupportsDeadLetterSubQueue)
+        {
+            return [];
+        }
+
         List<EntityTreeNodeDto> children =
         [
             SubQueueNode(entity, MessageSubQueue.Active, "Active"),
@@ -82,12 +88,15 @@ public sealed class GetEntityTreeQueryHandler : IRequestHandler<GetEntityTreeQue
         Name = name,
         Path = entity.Path,
         Kind = entity.Kind,
+        TypeName = entity.TypeName,
         SubQueue = subQueue,
         IsSubQueueNode = true,
         Status = entity.Status,
         RequiresSession = entity.RequiresSession,
         PeekMode = entity.PeekMode,
         DeadLetterExchange = entity.DeadLetterExchange,
+        Operations = entity.Operations,
+        Properties = entity.Properties,
         RuntimeInfo = ToRuntimeInfo(entity.RuntimeInfo),
     };
 
@@ -96,10 +105,13 @@ public sealed class GetEntityTreeQueryHandler : IRequestHandler<GetEntityTreeQue
         Name = entity.Name,
         Path = entity.Path,
         Kind = entity.Kind,
+        TypeName = entity.TypeName,
         Status = entity.Status,
         RequiresSession = entity.RequiresSession,
         PeekMode = entity.PeekMode,
         DeadLetterExchange = entity.DeadLetterExchange,
+        Operations = entity.Operations,
+        Properties = entity.Properties,
         RuntimeInfo = ToRuntimeInfo(entity.RuntimeInfo),
         Children = children,
     };

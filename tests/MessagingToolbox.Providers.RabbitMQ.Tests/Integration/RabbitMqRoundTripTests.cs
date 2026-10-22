@@ -36,9 +36,14 @@ public class RabbitMqRoundTripTests : IClassFixture<RabbitMqFixture>
         List<MessagingEntity> entities = await ListAsync(sut);
 
 
-        entities.Single(entity => entity.Path == "queues/rt-list-quorum").PeekMode.ShouldBe(PeekMode.Requeue);
-        entities.Single(entity => entity.Path == "queues/rt-list-stream").PeekMode.ShouldBe(PeekMode.NonDestructive);
-        entities.ShouldContain(entity => entity.Path == "exchanges/rt-list-exchange" && entity.Kind == EntityKind.Exchange);
+        MessagingEntity quorum = entities.Single(entity => entity.Path == "queues/rt-list-quorum");
+        quorum.PeekMode.ShouldBe(PeekMode.Requeue);
+        quorum.TypeName.ShouldBe("quorum");
+        quorum.Properties.ShouldContain(new EntityProperty("Settings", "Durable", "yes"));
+        MessagingEntity stream = entities.Single(entity => entity.Path == "queues/rt-list-stream");
+        stream.PeekMode.ShouldBe(PeekMode.NonDestructive);
+        stream.TypeName.ShouldBe("stream");
+        entities.ShouldContain(entity => entity.Path == "exchanges/rt-list-exchange" && entity.Kind == EntityKind.Exchange && entity.TypeName == "topic");
         entities.ShouldNotContain(entity => entity.Name.StartsWith("amq.", StringComparison.Ordinal));
     }
 

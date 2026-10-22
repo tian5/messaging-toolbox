@@ -58,6 +58,14 @@ public class RabbitMqProviderTests
         entities[1].PeekMode.ShouldBe(PeekMode.NonDestructive);
         entities[1].RuntimeInfo!.ActiveMessageCount.ShouldBe(3);
         entities[2].Kind.ShouldBe(EntityKind.Exchange);
+        entities.Select(entity => entity.TypeName).ShouldBe(["quorum", "stream", "topic"]);
+        entities[0].Properties.ShouldContain(property => property.Key == "x-dead-letter-exchange" && property.Value == "orders.dlx");
+        entities[0].Operations.ShouldBe(EntityOperations.All);
+        entities[1].Operations.ShouldSatisfyAllConditions(
+            operations => operations.CanReceive.ShouldBeFalse(),
+            operations => operations.CanReceiveSettle.ShouldBeFalse(),
+            operations => operations.CanPurge.ShouldBeFalse(),
+            operations => operations.Reason.ShouldNotBeNull());
     }
 
     [Fact]

@@ -670,7 +670,8 @@ button.test {
     }
 
     /* A chevron that rotates when expanded. */
-    .tree-toggle .chevron {
+    .tree-toggle .chevron,
+    .properties-toggle .chevron {
         width: 6px;
         height: 6px;
         border-right: 1.5px solid currentColor;
@@ -679,7 +680,8 @@ button.test {
         transition: transform 0.15s ease;
     }
 
-    .tree-toggle.expanded .chevron {
+    .tree-toggle.expanded .chevron,
+    .properties-toggle.expanded .chevron {
         transform: rotate(45deg) translate(-1px, -1px);
     }
 
@@ -773,7 +775,8 @@ button.test {
         text-decoration: line-through;
     }
 
-    .tree-item .session-tag {
+    .tree-item .session-tag,
+    .tree-item .type-tag {
         padding: 0 0.35rem;
         border-radius: 999px;
         background: var(--bg-raised);
@@ -1028,6 +1031,38 @@ button.test {
         color: var(--text-subtle);
         font-family: var(--mono);
         font-size: 0.78rem;
+    }
+
+.properties-toggle {
+    height: 26px;
+    padding: 0 0.65rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    letter-spacing: 0;
+}
+
+    .properties-toggle.expanded {
+        background: var(--accent-soft);
+        border-color: transparent;
+        box-shadow: none;
+        color: var(--accent-text);
+    }
+
+.entity-properties {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.4rem 1.5rem;
+    max-width: 760px;
+    margin-top: 0.6rem;
+}
+
+    .entity-properties h4 {
+        margin: 0.4rem 0 0.2rem;
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
     }
 
 .counts {

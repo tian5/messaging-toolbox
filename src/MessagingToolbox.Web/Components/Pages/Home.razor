@@ -43,6 +43,7 @@
                               RequiresSession="@(ActiveConnectionWorkspace.SelectedNode?.RequiresSession == true)"
                               Capabilities="Capabilities"
                               PeekMode="@(ActiveConnectionWorkspace.SelectedNode?.PeekMode ?? PeekMode.NonDestructive)"
+                              Operations="SelectedOperations"
                               SubQueueLabel="@SubQueueLabel"
                               EntityBusy="IsSelectedEntityBusy"
                               EntityLoading="IsSelectedEntityLoading"
@@ -50,6 +51,8 @@
 
                 <MessageActionsBar Workspace="ActiveConnectionWorkspace"
                                    IsScheduledNode="IsScheduledNode"
+                                   CanPurge="SelectedOperations.CanPurge"
+                                   CanDelete="@(SelectedOperations.CanReceive || SelectedOperations.CanReceiveSettle)"
                                    CanDeadLetterSelection="CanDeadLetterSelection"
                                    CanResubmit="CanResubmit"
                                    ResubmitLabel="@(IsDeadLetterNode ? "Requeue…" : "Copy / move to…")"
