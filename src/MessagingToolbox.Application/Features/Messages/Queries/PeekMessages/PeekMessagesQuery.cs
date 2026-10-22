@@ -10,4 +10,5 @@ public sealed record PeekMessagesQuery(
     MessageSubQueue SubQueue,
     long? FromSequenceNumber,
     int MaxMessages,
-    string? SessionId = null) : IRequest<IReadOnlyList<MessageDto>>;
+    string? SessionId = null,
+    DateTimeOffset? FromTime = null) : IRequest<IReadOnlyList<MessageDto>>;

@@ -33,7 +33,7 @@ internal static class RabbitMqEntityTypes
         CreateOnly(new EntityOptionDescriptor(Durable, "Durable", EntityOptionType.Boolean)
         {
             DefaultValue = true,
-            Description = "Survives a broker restart. Quorum queues and streams are always durable.",
+            Description = "Survives a broker restart. Quorum queues and streams are always durable; RabbitMQ 4 refuses non-durable classic queues unless its transient_nonexcl_queues deprecated feature is permitted.",
         }),
         CreateOnly(new EntityOptionDescriptor(AutoDelete, "Auto-delete", EntityOptionType.Boolean) { DefaultValue = false }),
         CreateOnly(new EntityOptionDescriptor("x-message-ttl", "Message TTL", EntityOptionType.Duration) { Placeholder = "hh:mm:ss" }),

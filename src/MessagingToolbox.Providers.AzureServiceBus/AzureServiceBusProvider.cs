@@ -271,6 +271,11 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
     {
         using Activity? activity = Telemetry.Source.StartActivity("servicebus.messages.peek");
 
+        if (request.FromTime is not null)
+        {
+            throw new NotSupportedByProviderException("Azure Service Bus browses by sequence number; it can't start a peek at a point in time.");
+        }
+
         int maxMessages = Math.Clamp(request.MaxMessages, 1, MaxPeekMessages);
 
         // A plain receiver peeks across every session of a session-enabled entity — no session lock.

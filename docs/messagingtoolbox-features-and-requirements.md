@@ -274,7 +274,8 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 - FR-9.8 Move every message of a queue to another queue inside the broker ("Move all…"), with
   the source's count in the confirmation, audited, through a dynamic shovel; offered when the
   shovel management plugin is enabled (ADR 23). *(Done, Phase 4c.)*
-- FR-9.9 Stream offsets and timestamps for peek, and live watch on streams. *(Phase 4c.)*
+- FR-9.9 Streams: peek from an offset or a point in time (UTC) as well as from the start, and
+  live watch on streams with the offset as the cursor (ADR 24). *(Done, Phase 4c.)*
 
 ### FR-8 Developer-experience extras (post-MVP)
 - Load/burst sender (rate, count, template-driven) for testing consumers.
@@ -312,7 +313,7 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 | 1 — MVP | FR-1…FR-5 complete for ASB cloud + emulator; canned messages; export/import; NuGet + Docker published | Replaces ServiceBusExplorer for daily dev work |
 | 2 — Management | FR-6 incl. rules, import/export of entities (emulator management via the admin endpoint already shipped in Phase 1, ADR 9) | Full management on cloud; honest degraded mode on emulator |
 | 3 — Standalone | FR-1.5 connection-string standalone app; polish; docs site | `docker run` → connect to any namespace |
-| 4 — Multi-broker | RabbitMQ provider (FR-9): 4a explore/peek/publish/purge + Aspire wiring (done); 4b settlement and resubmit (done); 4c management, bindings, shovel, streams. Abstraction hardening (ADR 17) | Second broker proves the model |
+| 4 — Multi-broker | RabbitMQ provider (FR-9): 4a explore/peek/publish/purge + Aspire wiring (done); 4b settlement and resubmit (done); 4c management, bindings, shovel, streams (done). Abstraction hardening (ADR 17) | Second broker proves the model |
 | 5 — Cloud identity | Entra ID sign-in, ARM namespace discovery, per-user saved state | No connection strings needed |
 | Backlog | Kafka (topics/offsets/consumer groups — different mental model), NATS JetStream, SQS, ActiveMQ Artemis, Event Hubs, cross-broker message copy |
 

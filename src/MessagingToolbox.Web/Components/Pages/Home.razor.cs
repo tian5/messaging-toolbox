@@ -91,12 +91,28 @@ public partial class Home : IDisposable
     // Live watch peeks on a timer, so it needs a side-effect-free peek and a sequence cursor (ADR 15, ADR 17).
     private bool CanWatch => CanPeek
         && ActiveConnectionWorkspace.SelectedNode is { PeekMode: PeekMode.NonDestructive }
-        && Capabilities?.SupportsSequenceNumbers != false;
+        && CanPeekFromSequence;
+
+    // Browsing by sequence number: every entity of a connection that has them, or an entity whose
+    // own messages do (a RabbitMQ stream's offsets, ADR 24).
+    private bool CanPeekFromSequence => HasSequenceNumbers(ActiveConnectionWorkspace.SelectedNode);
+
+    private bool CanPeekFromTime => ActiveConnectionWorkspace.SelectedNode?.CanPeekFromTime == true;
+
+    private bool HasSequenceNumbers(EntityTreeNodeDto? node) => Capabilities?.SupportsSequenceNumbers != false || node?.HasSequenceNumbers == true;
+
+    // The start inputs belong to the connection's workspace; one the entity can't use is ignored
+    // instead of failing the load. A start time wins over a start sequence number.
+    private (long? Sequence, DateTimeOffset? Time) PeekStart(ConnectionWorkspace workspace, EntityTreeNodeDto node)
+        => node.CanPeekFromTime && workspace.FromTime is { } time
+            ? (null, new DateTimeOffset(DateTime.SpecifyKind(time, DateTimeKind.Utc)))
+            : (HasSequenceNumbers(node) ? workspace.FromSequence : null, null);
 
     // ADR 20: the entity narrows what the connection allows (a RabbitMQ stream can't be consumed away).
     private EntityOperations SelectedOperations => ActiveConnectionWorkspace.SelectedNode?.Operations ?? EntityOperations.All;
 
-    private bool CanSend => ActiveConnectionWorkspace.SelectedNode is { SubQueue: MessageSubQueue.Active, Kind: EntityKind.Queue or EntityKind.Topic or EntityKind.Exchange };
+    private bool CanSend => ActiveConnectionWorkspace.SelectedNode is { SubQueue: MessageSubQueue.Active, Kind: EntityKind.Queue or EntityKind.Topic or EntityKind.Exchange }
+        && SelectedOperations.CanSend;
 
     private bool IsScheduledNode => ActiveConnectionWorkspace.SelectedNode?.SubQueue == MessageSubQueue.Scheduled;
 
@@ -496,6 +512,7 @@ public partial class Home : IDisposable
         // Scheduled messages are not receivable before their enqueue time — peek is the only mode.
         // Computed from the captured node: the user may have moved on to another entity by now.
         MessageLoadMode effectiveMode = node.SubQueue == MessageSubQueue.Scheduled ? MessageLoadMode.Peek : workspace.ViewMode;
+        (long? Sequence, DateTimeOffset? Time) start = PeekStart(workspace, node);
 
         // The fetch can run while the user moves on to another node or connection, so the
         // notification keeps its own copy of what is being fetched — several of them can be in
@@ -516,7 +533,7 @@ public partial class Home : IDisposable
                     _disposalTokenSource.Token),
                 MessageLoadMode.ReceiveAndDelete => await ReceiveAndRefreshTreeAsync(workspace, path, subQueue, sessionId),
                 _ => await Mediator.Send(
-                    new PeekMessagesQuery(workspace.ConnectionId, path, subQueue, workspace.FromSequence, workspace.MaxMessages, sessionId),
+                    new PeekMessagesQuery(workspace.ConnectionId, path, subQueue, start.Sequence, workspace.MaxMessages, sessionId, start.Time),
                     _disposalTokenSource.Token),
             };
 
@@ -1090,7 +1107,7 @@ public partial class Home : IDisposable
                     ActiveConnectionWorkspace.SelectedNode!.Path,
                     ActiveConnectionWorkspace.SelectedNode.SubQueue,
                     ActiveConnectionWorkspace.MaxMessages,
-                    ActiveConnectionWorkspace.FromSequence,
+                    CanPeekFromSequence ? ActiveConnectionWorkspace.FromSequence : null,
                     null,
                     // Exports what was loaded and selected; never fetches again (a re-peek isn't
                     // free on every broker, ADR 17).

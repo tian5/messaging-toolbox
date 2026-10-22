@@ -82,6 +82,7 @@ internal static class RabbitMqEntityProperties
         List<EntityProperty> properties = [];
         AddFlag(properties, "Durable", exchange.Durable);
         AddFlag(properties, "Auto-delete", exchange.AutoDelete);
+        AddFlag(properties, "Internal", exchange.Internal);
         AddArguments(properties, Arguments, exchange.Arguments, skip: null);
         return properties;
     }

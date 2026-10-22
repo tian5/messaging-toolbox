@@ -144,7 +144,8 @@ The first previews focus on the Azure Service Bus emulator inside Aspire. Know t
   never do it. Streams are read without side effects.
 - **RabbitMQ preview.** Explore, peek, publish, receive-and-delete, purge, settle (complete,
   abandon, dead-letter), copy or move messages between queues, and manage queues, exchanges and
-  bindings. "Move all" needs the `rabbitmq_shovel_management` plugin. Stream offsets are next.
+  bindings. Streams can be read from an offset or a time and watched live. "Move all" needs the
+  `rabbitmq_shovel_management` plugin.
   Without the management plugin only queues listed in configuration are shown.
 - **RabbitMQ held messages and dead-lettering.** Messages received with "settle later" stay
   invisible to consumers until you settle or release them; untouched ones are released after

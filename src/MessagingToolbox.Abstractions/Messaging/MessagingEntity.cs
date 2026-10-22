@@ -36,6 +36,17 @@ public sealed record MessagingEntity
     public PeekMode PeekMode { get; init; } = PeekMode.NonDestructive;
 
     /// <summary>
+    /// The entity's messages carry stable, increasing sequence numbers for browsing — a peek from a
+    /// position, the live-watch cursor — even where the connection's don't
+    /// (<see cref="ProviderCapabilities.SupportsSequenceNumbers"/>; a RabbitMQ stream's offsets).
+    /// It widens browsing only: operations addressed by sequence number still need the capability (ADR 24).
+    /// </summary>
+    public bool HasSequenceNumbers { get; init; }
+
+    /// <summary>A peek can start at a point in time (<see cref="PeekRequest.FromTime"/>): RabbitMQ streams.</summary>
+    public bool CanPeekFromTime { get; init; }
+
+    /// <summary>
     /// The exchange this entity dead-letters into, for brokers that dead-letter through routing
     /// (RabbitMQ: the queue's or its policy's dead-letter exchange; empty = the default exchange).
     /// Null when the entity has none, or when the broker uses a dead-letter sub-queue instead.

@@ -50,15 +50,20 @@ public class RabbitMqProviderTests
 
 
         sut.Capabilities.ManagementUnavailableReason.ShouldBeNull();
-        entities.Select(entity => entity.Path).ShouldBe(["queues/orders", "queues/activity", "exchanges/events"]);
+        entities.Select(entity => entity.Path).ShouldBe(["queues/orders", "queues/activity", "exchanges/internal-x", "exchanges/events"]);
         entities[0].PeekMode.ShouldBe(PeekMode.Requeue);
         entities[0].RuntimeInfo!.ActiveMessageCount.ShouldBe(3);
         entities[0].DeadLetterExchange.ShouldBe("orders.dlx");
         entities[1].DeadLetterExchange.ShouldBeNull();
         entities[1].PeekMode.ShouldBe(PeekMode.NonDestructive);
+        entities[1].HasSequenceNumbers.ShouldBeTrue();
+        entities[1].CanPeekFromTime.ShouldBeTrue();
+        entities[0].HasSequenceNumbers.ShouldBeFalse();
         entities[1].RuntimeInfo!.ActiveMessageCount.ShouldBe(3);
         entities[2].Kind.ShouldBe(EntityKind.Exchange);
-        entities.Select(entity => entity.TypeName).ShouldBe(["quorum", "stream", "topic"]);
+        entities.Select(entity => entity.TypeName).ShouldBe(["quorum", "stream", "topic", "topic"]);
+        entities[2].Operations.CanSend.ShouldBeFalse();
+        entities[3].Operations.ShouldBe(EntityOperations.All);
         entities[0].Properties.ShouldContain(property => property.Key == "x-dead-letter-exchange" && property.Value == "orders.dlx");
         entities[0].Operations.ShouldBe(EntityOperations.All);
         entities[1].Operations.ShouldSatisfyAllConditions(
@@ -147,6 +152,18 @@ public class RabbitMqProviderTests
 
         await Should.ThrowAsync<NotSupportedByProviderException>(
             () => sut.PeekAsync(new PeekRequest("exchanges/events", MessageSubQueue.Active, 10, null), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task PeekAsync_ClassicQueueFromTime_ThrowsNotSupported()
+    {
+        _management.GetQueueAsync("orders", Arg.Any<CancellationToken>()).Returns(new RabbitMqQueueInfo { Name = "orders", Type = "classic" });
+        await using RabbitMqProvider sut = CreateProvider();
+        await sut.ProbeCapabilitiesAsync(CancellationToken.None);
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => sut.PeekAsync(
+            new PeekRequest("queues/orders", MessageSubQueue.Active, 10, null, FromTime: DateTimeOffset.UnixEpoch), CancellationToken.None));
     }
 
     [Fact]

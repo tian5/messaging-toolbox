@@ -249,7 +249,7 @@ public sealed class LiveWatchService : IDisposable
                 _disposal.Token);
 
             List<MessageDto> fresh = peeked
-                .Where(message => message.SequenceNumber > watch.LastSeenSequence)
+                .Where(message => message.SequenceNumber is { } sequence && (watch.LastSeenSequence is not { } last || sequence > last))
                 .ToList();
             if (fresh.Count > 0)
             {

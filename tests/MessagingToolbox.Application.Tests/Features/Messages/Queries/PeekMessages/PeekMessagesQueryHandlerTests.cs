@@ -47,6 +47,22 @@ public class PeekMessagesQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_FromTime_PassesItToProvider()
+    {
+        DateTimeOffset from = new(2026, 10, 22, 12, 0, 0, TimeSpan.Zero);
+        _provider.PeekAsync(Arg.Any<PeekRequest>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
+
+        await _sut.Handle(new PeekMessagesQuery(ConnectionId, "queues/activity", MessageSubQueue.Active, null, 10, null, from), CancellationToken.None);
+
+
+        await _provider.Received(1).PeekAsync(
+            Arg.Is<PeekRequest>(request => request.FromTime == from && request.FromSequenceNumber == null),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Handle_Messages_ReturnsMappedMessagesWithMetadata()
     {
         ToolboxMessage jsonMessage = new()

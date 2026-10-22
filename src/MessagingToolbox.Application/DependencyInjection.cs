@@ -14,6 +14,7 @@ using MessagingToolbox.Application.Features.Messages.Commands.RequeueMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.SendMessage;
 using MessagingToolbox.Application.Features.Messages.Commands.SettleBySequence;
 using MessagingToolbox.Application.Features.Messages.Commands.SettleMessages;
+using MessagingToolbox.Application.Features.Messages.Queries.PeekMessages;
 using MessagingToolbox.Application.Features.Messages.Queries.ReceiveDeferredMessages;
 using MessagingToolbox.Application.Features.Templates.Commands.SaveCannedMessage;
 using MessagingToolbox.Application.Services;
@@ -52,6 +53,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<MoveMessagesCommand>, MoveMessagesCommandValidator>();
         services.AddScoped<IValidator<SettleMessagesCommand>, SettleMessagesCommandValidator>();
         services.AddScoped<IValidator<SettleBySequenceCommand>, SettleBySequenceCommandValidator>();
+        services.AddScoped<IValidator<PeekMessagesQuery>, PeekMessagesQueryValidator>();
         services.AddScoped<IValidator<ReceiveDeferredMessagesQuery>, ReceiveDeferredMessagesQueryValidator>();
         services.AddScoped<IValidator<CreateOrUpdateEntityCommand>, CreateOrUpdateEntityCommandValidator>();
         services.AddScoped<IValidator<DeleteEntityCommand>, DeleteEntityCommandValidator>();

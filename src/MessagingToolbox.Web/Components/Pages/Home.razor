@@ -50,6 +50,8 @@
                               RequiresSession="@(ActiveConnectionWorkspace.SelectedNode?.RequiresSession == true)"
                               Capabilities="Capabilities"
                               PeekMode="@(ActiveConnectionWorkspace.SelectedNode?.PeekMode ?? PeekMode.NonDestructive)"
+                              CanPeekFromSequence="CanPeekFromSequence"
+                              CanPeekFromTime="CanPeekFromTime"
                               Operations="SelectedOperations"
                               SubQueueLabel="@SubQueueLabel"
                               EntityBusy="IsSelectedEntityBusy"
@@ -158,6 +160,12 @@
                                    OnSendCopy="SendCopyAsync"
                                    OnRepair="RepairAsync" />
                 </div>
+            }
+
+            @if (!SelectedOperations.CanSend && !CanPeek && SelectedOperations.Reason is { } sendReason)
+            {
+                @* ADR 20: say why there is no composer; PeekControls shows the reason where there are messages. *@
+                <p class="hint" role="note">@sendReason</p>
             }
 
             @if (CanSend || ActiveConnectionWorkspace.EditMessage is not null)

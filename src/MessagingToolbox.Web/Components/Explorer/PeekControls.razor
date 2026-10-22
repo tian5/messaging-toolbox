@@ -12,9 +12,15 @@
         }
     </select>
     <label title="How many messages to fetch; the provider pages through the broker (max 5000)">Max <InputNumber @bind-Value="Workspace.MaxMessages" min="1" max="5000" /></label>
-    @if (Workspace.ViewMode == MessageLoadMode.Peek && Capabilities?.SupportsSequenceNumbers != false)
+    @if (Workspace.ViewMode == MessageLoadMode.Peek && CanPeekFromSequence)
     {
         <label>From seq <InputNumber @bind-Value="Workspace.FromSequence" /></label>
+    }
+    @if (Workspace.ViewMode == MessageLoadMode.Peek && CanPeekFromTime)
+    {
+        <label title="Start at the first messages written at or after this time (UTC, to the second); leave empty to start at the beginning">
+            From (UTC) <input type="datetime-local" step="1" @bind="Workspace.FromTime" />
+        </label>
     }
     @if (ShowSessionFilter)
     {
@@ -77,6 +83,14 @@
     /// <summary>The active connection's capabilities; null while unknown (everything is offered).</summary>
     [Parameter]
     public ProviderCapabilities? Capabilities { get; set; }
+
+    /// <summary>A peek can start at a sequence number (the connection's or the entity's, ADR 24).</summary>
+    [Parameter]
+    public bool CanPeekFromSequence { get; set; }
+
+    /// <summary>A peek can start at a point in time.</summary>
+    [Parameter]
+    public bool CanPeekFromTime { get; set; }
 
     /// <summary>What a peek of the selected entity costs; a requeue-peek is disclosed next to Load.</summary>
     [Parameter]

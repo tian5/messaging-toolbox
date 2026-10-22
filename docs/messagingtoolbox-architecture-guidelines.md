@@ -391,7 +391,8 @@ Providers.RabbitMQ/
 - **Discovery** needs the management HTTP API (AMQP can't list anything). It is probed like the
   emulator admin endpoint: success is final, a failure is retried after 15 s and explained in
   `ManagementUnavailableReason`; meanwhile config-listed queues are shown and counted over AMQP.
-  The default exchange and `amq.*` exchanges are hidden.
+  The default exchange and `amq.*` exchanges are hidden. Internal exchanges are listed, with
+  `EntityOperations.CanSend` off (the broker refuses publishes to them).
 - **Counts:** ready messages come from a passive declare (the management statistics refresh only
   every few seconds, so a count right after a send would lag), plus the unacknowledged count from
   the management API. Streams use the management count.
@@ -402,8 +403,9 @@ Providers.RabbitMQ/
   messages without auto-ack on its own channel and nacks them all with requeue at the end, never
   rejects. Streams report `PeekMode.NonDestructive` and are read by a consumer from offset
   `first`, with the prefetch capping deliveries.
-- **Sequence numbers:** none (`SupportsSequenceNumbers` is false). Stream messages report their
-  offset as `SequenceNumber`; every other message reports none. The grid selects rows by
+- **Sequence numbers:** none on the connection (`SupportsSequenceNumbers` is false). Stream
+  messages report their offset as `SequenceNumber` and streams set
+  `MessagingEntity.HasSequenceNumbers` (ADR 24); every other message reports none. The grid selects rows by
   `MessageDto.RowKey`, assigned per load (sequence number, else lock token, else position).
 - **Settlement (ADR 19):** settle-later receives hold their deliveries on one channel per queue
   (`HeldDeliveries`, lock token `{heldId}:{deliveryTag}`). Complete = ack, Abandon = nack with
@@ -420,9 +422,12 @@ Providers.RabbitMQ/
   and details panel render them and never branch on them, so behaviour stays on `PeekMode` and
   the capability flags (ADR 5/17). Azure Service Bus fills `Properties` from the administration
   client (lock duration, TTL, max size, …) and leaves `TypeName` null.
-- **Streams (ADR 20):** report `EntityOperations` without receive, settle-later and purge, with
-  the reason as the hint; the UI offers only peek and send, and the provider still refuses the
-  rest.
+- **Streams (ADR 20, ADR 24):** report `EntityOperations` without receive, settle-later, purge
+  and move, with the reason as the hint; the UI offers only peek and send, and the provider still
+  refuses the rest. A peek starts at the first retained message, an offset (`FromSequenceNumber`)
+  or a time (`PeekRequest.FromTime`, sent as an AMQP timestamp: the broker starts at the first
+  chunk written in or after that second). Live watch follows a stream with its offset as the cursor.
+  Classic and quorum queues refuse a start position; they are read from the head.
 - **Bindings (ADR 22):** the provider's routing rules: from an exchange to a queue or exchange,
   with a routing key and, for headers exchanges, match arguments (`key=value` pairs). Listed,
   created and deleted through the management API, identified by its properties key; the default
@@ -855,3 +860,21 @@ Aspire.Hosting/
     Service Bus has no broker-side move; its copies go through requeue (clone, then remove).
     Rejected: client-side receive-and-send (not atomic per message, and slow), and treating the
     shovel plugin as always present (a broker without it would fail only on use).
+24. **Entities can widen browsing: sequence numbers and a start time per entity** — *(amends ADR
+    20, which only narrows.)* A RabbitMQ stream is a log with offsets: it can be read from any
+    position and followed by live watch, but its connection has no sequence numbers, because
+    classic and quorum queues don't. `MessagingEntity.HasSequenceNumbers` says an entity's messages
+    carry stable, increasing sequence numbers *for browsing*: the UI offers "From seq" and live
+    watch when the connection's `SupportsSequenceNumbers` or the entity's flag is set. Operations
+    addressed by sequence number (scan-and-settle, cancel scheduled, removal by sequence) still
+    need the capability, so the flag widens nothing else. `MessagingEntity.CanPeekFromTime` and
+    `PeekRequest.FromTime` start a peek at a point in time (UTC in the UI, like the grid); a peek
+    sets at most one of the two starts (validated), and a provider refuses a start it can't honour
+    (Service Bus has no time start; RabbitMQ queues have no position at all). The start inputs live
+    in the connection's workspace, so one the selected entity can't use is ignored rather than
+    failing its load. The live-watch cursor became nullable, so a watch starts at the beginning
+    instead of after sequence number 0 (a stream's first offset). The same release adds
+    `EntityOperations.CanSend` for entities the broker refuses publishes to (RabbitMQ internal
+    exchanges, now listed): the composer is replaced by the reason. Rejected: declaring sequence
+    numbers on every RabbitMQ connection and narrowing classic and quorum queues (handlers would
+    trust a capability that isn't true), and a separate stream entity kind (ADR 20).

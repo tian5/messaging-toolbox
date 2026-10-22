@@ -79,6 +79,7 @@ public class RabbitMqEntityPropertiesTests
         properties.ShouldBe(
         [
             new EntityProperty("Settings", "Durable", "yes"),
+            new EntityProperty("Settings", "Internal", "no"),
             new EntityProperty("Arguments", "Alternate exchange", "unrouted") { Key = "alternate-exchange" },
         ]);
     }

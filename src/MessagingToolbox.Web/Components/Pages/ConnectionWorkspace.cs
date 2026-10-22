@@ -179,6 +179,9 @@ public sealed class ConnectionWorkspace
 
     public long? FromSequence { get; set; }
 
+    /// <summary>Start a peek at this UTC time, on entities that can (RabbitMQ streams).</summary>
+    public DateTime? FromTime { get; set; }
+
     /// <summary>
     /// Session filter for loads; blank means every session. Peeks filter while paging (nothing is
     /// locked); receives lock just this session.

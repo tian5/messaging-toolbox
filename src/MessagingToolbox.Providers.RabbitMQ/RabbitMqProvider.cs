@@ -65,6 +65,13 @@ public sealed class RabbitMqProvider : IMessagingProvider
         Reason = "Streams are append-only logs: messages can't be received, settled, purged or moved — peek reads them without side effects.",
     };
 
+    // An internal exchange only receives from other exchanges: the broker refuses publishes to it.
+    private static readonly EntityOperations InternalExchangeOperations = new()
+    {
+        CanSend = false,
+        Reason = "Internal exchanges only receive messages from other exchanges: publish to an exchange bound to it.",
+    };
+
     private readonly ConcurrentDictionary<string, bool> _streamQueues = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string?> _deadLetterExchanges = new(StringComparer.Ordinal);
     private readonly HeldDeliveries _held;
@@ -166,9 +173,21 @@ public sealed class RabbitMqProvider : IMessagingProvider
         string queue = RequireActiveQueue(request.EntityPath, request.SubQueue);
         int maxMessages = Math.Clamp(request.MaxMessages, 1, MaxMessagesPerCall);
 
-        return await OnQueueAsync(queue, request.EntityPath, async () => await IsStreamAsync(queue, cancellationToken)
-            ? await PeekStreamAsync(queue, maxMessages, request.FromSequenceNumber, cancellationToken)
-            : await PeekByRequeueAsync(queue, maxMessages, cancellationToken), cancellationToken);
+        return await OnQueueAsync(queue, request.EntityPath, async () =>
+        {
+            if (await IsStreamAsync(queue, cancellationToken))
+            {
+                return await PeekStreamAsync(queue, maxMessages, StreamOffset(request), cancellationToken);
+            }
+
+            // A queue is read from its head: a position only means something in a stream's log.
+            if (request.FromSequenceNumber is not null || request.FromTime is not null)
+            {
+                throw new NotSupportedByProviderException($"'{queue}' is read from its head; only streams can be read from an offset or a time.");
+            }
+
+            return await PeekByRequeueAsync(queue, maxMessages, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<ToolboxMessage>> ReceiveAsync(ReceiveRequest request, CancellationToken cancellationToken)
@@ -674,6 +693,8 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 TypeName = queue.Type,
                 Status = queue.State is null or "running" ? MessagingEntityStatus.Active : MessagingEntityStatus.Unknown,
                 PeekMode = queue.IsStream ? PeekMode.NonDestructive : PeekMode.Requeue,
+                HasSequenceNumbers = queue.IsStream,
+                CanPeekFromTime = queue.IsStream,
                 DeadLetterExchange = queue.DeadLetterExchange,
                 Operations = queue.IsStream ? StreamOperations : EntityOperations.All,
                 Properties = RabbitMqEntityProperties.ForQueue(queue),
@@ -682,9 +703,10 @@ public sealed class RabbitMqProvider : IMessagingProvider
         }
 
         // The default exchange is how queues are addressed directly (send to the queue instead), and
-        // the predeclared amq.* exchanges are broker plumbing; neither is worth a tree node.
+        // the predeclared amq.* exchanges are broker plumbing; neither is worth a tree node. Internal
+        // exchanges are the user's own (targets of exchange-to-exchange bindings), so they are shown.
         foreach (RabbitMqExchangeInfo exchange in exchanges.Where(exchange =>
-            !exchange.Internal && exchange.Name.Length > 0 && !exchange.Name.StartsWith("amq.", StringComparison.Ordinal)))
+            exchange.Name.Length > 0 && !exchange.Name.StartsWith("amq.", StringComparison.Ordinal)))
         {
             entities.Add(new MessagingEntity
             {
@@ -693,6 +715,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 Kind = EntityKind.Exchange,
                 TypeName = exchange.Type,
                 Status = MessagingEntityStatus.Active,
+                Operations = exchange.Internal ? InternalExchangeOperations : EntityOperations.All,
                 Properties = RabbitMqEntityProperties.ForExchange(exchange),
             });
         }
@@ -836,8 +859,17 @@ public sealed class RabbitMqProvider : IMessagingProvider
 
     // Streams are append-only logs: a consumer reads from an offset without removing anything.
     // The prefetch caps deliveries at the requested count, so nothing needs acknowledging.
+    // Where a stream read starts: an offset, a point in time (the broker starts at the first chunk
+    // written at or after it, to the second), or the first message still retained.
+    private static object StreamOffset(PeekRequest request) => request switch
+    {
+        { FromSequenceNumber: { } offset } => offset,
+        { FromTime: { } time } => new AmqpTimestamp(time.ToUnixTimeSeconds()),
+        _ => "first",
+    };
+
     private async Task<IReadOnlyList<ToolboxMessage>> PeekStreamAsync(
-        string queue, int maxMessages, long? fromOffset, CancellationToken cancellationToken)
+        string queue, int maxMessages, object offset, CancellationToken cancellationToken)
     {
         await using IChannel channel = await CreateChannelAsync(null, cancellationToken);
         await channel.BasicQosAsync(0, (ushort)Math.Min(maxMessages, ushort.MaxValue), false, cancellationToken);
@@ -870,7 +902,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
             consumerTag: string.Empty,
             noLocal: false,
             exclusive: false,
-            arguments: new Dictionary<string, object?> { [RabbitMqMessageMapper.StreamOffsetHeader] = fromOffset is { } offset ? offset : "first" },
+            arguments: new Dictionary<string, object?> { [RabbitMqMessageMapper.StreamOffsetHeader] = offset },
             consumer,
             cancellationToken);
 

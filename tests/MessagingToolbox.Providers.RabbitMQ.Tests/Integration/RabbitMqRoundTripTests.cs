@@ -109,6 +109,50 @@ public class RabbitMqRoundTripTests : IClassFixture<RabbitMqFixture>
     }
 
     [BrokerFact]
+    public async Task PeekAsync_StreamFromOffset_StartsAtThatOffset()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.QueueDeclareAsync("rt-stream-offset", true, false, false, QueueType("stream"));
+            await PublishAsync(channel, "rt-stream-offset", "o0", "o1", "o2");
+        });
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+        await ListAsync(sut);
+
+
+        IReadOnlyList<ToolboxMessage> messages = await sut.PeekAsync(new PeekRequest("queues/rt-stream-offset", MessageSubQueue.Active, 10, 1), CancellationToken.None);
+
+
+        messages.Select(Body).ShouldBe(["o1", "o2"]);
+        messages.Select(message => message.SequenceNumber).ShouldBe([1L, 2L]);
+    }
+
+    [BrokerFact]
+    public async Task PeekAsync_StreamFromTime_SkipsWhatWasWrittenBefore()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.QueueDeclareAsync("rt-stream-time", true, false, false, QueueType("stream"));
+            await PublishAsync(channel, "rt-stream-time", "before");
+        });
+
+        // Stream timestamps have second precision: leave a full second on both sides of the start.
+        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        DateTimeOffset start = DateTimeOffset.UtcNow;
+        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        await _fixture.DeclareAsync(channel => PublishAsync(channel, "rt-stream-time", "after"));
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+        await ListAsync(sut);
+
+
+        IReadOnlyList<ToolboxMessage> messages = await sut.PeekAsync(
+            new PeekRequest("queues/rt-stream-time", MessageSubQueue.Active, 10, null, FromTime: start), CancellationToken.None);
+
+
+        messages.Select(Body).ShouldBe(["after"]);
+    }
+
+    [BrokerFact]
     public async Task SendAsync_TopicExchangeWithRoutingKey_RoutesToMatchingQueuesOnly()
     {
         await _fixture.DeclareAsync(async channel =>

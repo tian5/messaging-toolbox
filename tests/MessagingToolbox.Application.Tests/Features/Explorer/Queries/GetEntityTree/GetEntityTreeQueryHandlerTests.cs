@@ -164,6 +164,23 @@ public class GetEntityTreeQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_StreamEntity_FlowsSequenceNumbersAndTimeStart()
+    {
+        _provider.Capabilities.Returns(FullCapabilities with { SupportsScheduling = false, SupportsDeadLetterSubQueue = false, SupportsSequenceNumbers = false });
+        MessagingEntity stream = new() { Path = "queues/activity", Name = "activity", Kind = EntityKind.Queue, HasSequenceNumbers = true, CanPeekFromTime = true };
+        _provider.ListEntitiesAsync(Arg.Any<CancellationToken>())
+            .Returns(TestAsyncEnumerable.Of(stream));
+
+
+        IReadOnlyList<EntityTreeNodeDto> tree = await _sut.Handle(new GetEntityTreeQuery(ConnectionId), CancellationToken.None);
+
+
+        EntityTreeNodeDto node = tree.ShouldHaveSingleItem();
+        node.HasSequenceNumbers.ShouldBeTrue();
+        node.CanPeekFromTime.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task Handle_Exchanges_RendersThemAfterQueuesWithoutChildren()
     {
         MessagingEntity queue = new() { Path = "queues/orders", Name = "orders", Kind = EntityKind.Queue };

@@ -27,7 +27,8 @@ win. Then fix the docs.
    (`AzureServiceBusCapabilities`: cloud vs emulator).
    The provider throws `NotSupportedByProviderException` when the flag is absent.
    When entities on one connection differ (a RabbitMQ stream), narrow per entity with
-   `MessagingEntity.Operations` instead of switching on `Kind` or `TypeName` in Web (ADR 20).
+   `MessagingEntity.Operations` instead of switching on `Kind` or `TypeName` in Web (ADR 20); an
+   entity can widen browsing only (`HasSequenceNumbers`, `CanPeekFromTime`, ADR 24).
    New entity settings go into the provider's entity-type schema (`*EntityTypes`), never into
    `EntityEditor.razor` (ADR 21); routing rules likewise come from `GetRoutingRuleType()` (ADR 22).
    Broker-side moves are gated by `CanMoveMessages` (ADR 23).

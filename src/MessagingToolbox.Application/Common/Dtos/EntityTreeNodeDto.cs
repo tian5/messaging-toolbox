@@ -31,6 +31,12 @@ public sealed record EntityTreeNodeDto
     /// <summary>What a peek of this entity costs; set on entity and sub-queue nodes alike.</summary>
     public PeekMode PeekMode { get; init; } = PeekMode.NonDestructive;
 
+    /// <summary>Browsing addresses this entity's messages by sequence number, whatever the connection says (ADR 24).</summary>
+    public bool HasSequenceNumbers { get; init; }
+
+    /// <summary>A peek can start at a point in time.</summary>
+    public bool CanPeekFromTime { get; init; }
+
     /// <summary>The exchange the entity dead-letters into (routing-based brokers); null when it has none.</summary>
     public string? DeadLetterExchange { get; init; }
 

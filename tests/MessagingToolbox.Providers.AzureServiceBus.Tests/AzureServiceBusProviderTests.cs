@@ -45,6 +45,15 @@ public class AzureServiceBusProviderTests
     }
 
     [Fact]
+    public async Task PeekAsync_FromTime_ThrowsNotSupported()
+    {
+        await using AzureServiceBusProvider provider = CreateProvider(CloudConnectionString);
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => provider.PeekAsync(
+            new PeekRequest("orders", MessageSubQueue.Active, 10, null, FromTime: DateTimeOffset.UnixEpoch), CancellationToken.None));
+    }
+
+    [Fact]
     public async Task MoveMessagesAsync_AnyConnection_ThrowsNotSupported()
     {
         await using AzureServiceBusProvider provider = CreateProvider(CloudConnectionString);

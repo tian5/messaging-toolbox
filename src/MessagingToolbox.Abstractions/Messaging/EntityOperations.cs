@@ -11,6 +11,9 @@ public sealed record EntityOperations
     /// <summary>Nothing narrowed: the connection's capabilities decide alone.</summary>
     public static EntityOperations All { get; } = new();
 
+    /// <summary>Send (publish) to it.</summary>
+    public bool CanSend { get; init; } = true;
+
     /// <summary>Receive-and-delete.</summary>
     public bool CanReceive { get; init; } = true;
 
