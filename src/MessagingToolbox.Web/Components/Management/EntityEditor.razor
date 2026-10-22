@@ -1,7 +1,6 @@
 @* Entity management: create/edit/delete the entity types the connection's provider describes
    (ADR 21). The form is built from that schema, so no broker setting is hard-coded here. Only
    renders actionable UI when the active connection declares CanManageEntities (FR-6). *@
-@using System.Globalization
 @using MessagingToolbox.Web.Services.Filtering
 @inherits ToolboxComponentBase
 @implements IDisposable
@@ -55,48 +54,7 @@
                     <input type="text" @bind="_name" disabled="@_isEdit" />
                 </label>
 
-                @foreach (EntityOptionDescriptor option in editedType.Options)
-                {
-                    bool locked = _isEdit && option.CreateOnly;
-                    @if (option.Type == EntityOptionType.Boolean)
-                    {
-                        <label class="checkbox-row" title="@option.Description">
-                            <input type="checkbox" checked="@_flags.GetValueOrDefault(option.Key)" disabled="@locked"
-                                   @onchange="args => _flags[option.Key] = args.Value is true" />
-                            @option.Label
-                        </label>
-                    }
-                    else
-                    {
-                        <label title="@option.Description">
-                            @option.Label
-                            @if (option.Type == EntityOptionType.Choice)
-                            {
-                                <select value="@_texts.GetValueOrDefault(option.Key)" disabled="@locked"
-                                        @onchange="args => _texts[option.Key] = args.Value?.ToString() ?? string.Empty">
-                                    @if (option.DefaultValue is null)
-                                    {
-                                        <option value="">(broker default)</option>
-                                    }
-                                    @foreach (string choice in option.Choices)
-                                    {
-                                        <option value="@choice">@choice</option>
-                                    }
-                                </select>
-                            }
-                            else
-                            {
-                                <input type="@(option.Type == EntityOptionType.Integer ? "number" : "text")"
-                                       value="@_texts.GetValueOrDefault(option.Key)" placeholder="@option.Placeholder" disabled="@locked"
-                                       @onchange="args => _texts[option.Key] = args.Value?.ToString() ?? string.Empty" />
-                            }
-                            @if (option.Description is { } description)
-                            {
-                                <span class="hint">@description</span>
-                            }
-                        </label>
-                    }
-                }
+                <EntityOptionInputs Options="editedType.Options" Form="_form" IsLocked="option => _isEdit && option.CreateOnly" />
             </div>
 
             @if (!string.IsNullOrEmpty(_error))
@@ -173,9 +131,7 @@
     private string _name = string.Empty;
     private string _parentPath = string.Empty;
 
-    // Form values by option key: booleans in _flags, everything else as the text the user typed.
-    private readonly Dictionary<string, bool> _flags = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _texts = new(StringComparer.Ordinal);
+    private readonly EntityOptionForm _form = new();
 
     private bool _showEntityPicker;
     private string? _pickerTitle;
@@ -237,7 +193,7 @@
         _type = type;
         _name = string.Empty;
         _parentPath = string.Empty;
-        LoadValues(type, type.Options.ToDictionary(option => option.Key, option => option.DefaultValue, StringComparer.Ordinal));
+        _form.LoadDefaults(type.Options);
         _error = null;
         _showEditor = true;
     }
@@ -305,7 +261,7 @@
             _type = type;
             _name = definition.Name;
             _parentPath = definition.ParentPath ?? string.Empty;
-            LoadValues(type, definition.Options);
+            _form.Load(type.Options, definition.Options);
             _error = null;
             _showEntityPicker = false;
             _showEditor = true;
@@ -375,10 +331,9 @@
         }
     }
 
-    // Typed values for the schema (ADR 21); a value that doesn't parse is reported instead of dropped.
     private bool TryBuildOptions(EntityTypeDescriptor type, out Dictionary<string, object?> options)
     {
-        options = new(StringComparer.Ordinal);
+        options = [];
 
         if (string.IsNullOrWhiteSpace(_name))
         {
@@ -392,63 +347,7 @@
             return false;
         }
 
-        foreach (EntityOptionDescriptor option in type.Options)
-        {
-            if (option.Type == EntityOptionType.Boolean)
-            {
-                options[option.Key] = _flags.GetValueOrDefault(option.Key);
-                continue;
-            }
-
-            string text = _texts.GetValueOrDefault(option.Key)?.Trim() ?? string.Empty;
-            if (text.Length == 0)
-            {
-                continue;
-            }
-
-            switch (option.Type)
-            {
-                case EntityOptionType.Duration when TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out TimeSpan duration):
-                    options[option.Key] = duration;
-                    break;
-                case EntityOptionType.Integer when long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long number):
-                    options[option.Key] = number;
-                    break;
-                case EntityOptionType.Text or EntityOptionType.Choice:
-                    options[option.Key] = text;
-                    break;
-                default:
-                    _error = $"{option.Label}: enter {(option.Type == EntityOptionType.Duration ? "a duration as hh:mm:ss (or d.hh:mm:ss)" : "a whole number")}.";
-                    return false;
-            }
-        }
-
-        _error = null;
-        return true;
-    }
-
-    private void LoadValues(EntityTypeDescriptor type, IReadOnlyDictionary<string, object?> values)
-    {
-        _flags.Clear();
-        _texts.Clear();
-        foreach (EntityOptionDescriptor option in type.Options)
-        {
-            object? value = values.GetValueOrDefault(option.Key);
-            if (option.Type == EntityOptionType.Boolean)
-            {
-                _flags[option.Key] = value is true;
-            }
-            else
-            {
-                _texts[option.Key] = value switch
-                {
-                    null => string.Empty,
-                    TimeSpan duration => duration.ToString("c", CultureInfo.InvariantCulture),
-                    IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
-                    _ => value.ToString() ?? string.Empty,
-                };
-            }
-        }
+        return _form.TryBuild(type.Options, out options, out _error);
     }
 
     private void CloseEditor()

@@ -43,10 +43,6 @@ public class RabbitMqProviderTests
             new RabbitMqExchangeInfo { Name = "internal-x", Type = "topic", Internal = true },
             new RabbitMqExchangeInfo { Name = "events", Type = "topic" },
         ]);
-        _management.ListBindingsAsync(Arg.Any<CancellationToken>()).Returns(
-        [
-            new RabbitMqBindingInfo { Source = "events", Destination = "orders", DestinationType = "queue", RoutingKey = "order.*" },
-        ]);
         await using RabbitMqProvider sut = CreateProvider();
 
 
@@ -65,8 +61,6 @@ public class RabbitMqProviderTests
         entities.Select(entity => entity.TypeName).ShouldBe(["quorum", "stream", "topic"]);
         entities[0].Properties.ShouldContain(property => property.Key == "x-dead-letter-exchange" && property.Value == "orders.dlx");
         entities[0].Operations.ShouldBe(EntityOperations.All);
-        entities[0].Properties[0].ShouldBe(new EntityProperty("Bound from", "events", "order.*") { Key = "routing key" });
-        entities[2].Properties.ShouldContain(property => property.Group == "Routes to" && property.Name == "orders");
         entities[1].Operations.ShouldSatisfyAllConditions(
             operations => operations.CanReceive.ShouldBeFalse(),
             operations => operations.CanReceiveSettle.ShouldBeFalse(),
@@ -315,6 +309,70 @@ public class RabbitMqProviderTests
         definition.Kind.ShouldBe(EntityKind.Exchange);
         definition.Options["type"].ShouldBe("topic");
         definition.Options["internal"].ShouldBe(true);
+    }
+
+    [Fact]
+    public async Task ListRoutingRulesAsync_Queue_ReturnsBindingsToItWithoutTheDefaultExchange()
+    {
+        _management.ListBindingsAsync(Arg.Any<CancellationToken>()).Returns(
+        [
+            new RabbitMqBindingInfo { Source = string.Empty, Destination = "orders", DestinationType = "queue", RoutingKey = "orders" },
+            new RabbitMqBindingInfo { Source = "events", Destination = "orders", DestinationType = "queue", RoutingKey = "order.*", PropertiesKey = "order.*" },
+            new RabbitMqBindingInfo { Source = "events", Destination = "orders", DestinationType = "exchange", RoutingKey = "#" },
+        ]);
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        IReadOnlyList<RoutingRule> rules = await sut.ListRoutingRulesAsync("queues/orders", CancellationToken.None);
+
+
+        RoutingRule rule = rules.ShouldHaveSingleItem();
+        rule.SourcePath.ShouldBe("exchanges/events");
+        rule.Options["routing-key"].ShouldBe("order.*");
+    }
+
+    [Fact]
+    public async Task ListRoutingRulesAsync_Exchange_ReturnsBindingsFromAndToIt()
+    {
+        _management.ListBindingsAsync(Arg.Any<CancellationToken>()).Returns(
+        [
+            new RabbitMqBindingInfo { Source = "events", Destination = "orders", DestinationType = "queue" },
+            new RabbitMqBindingInfo { Source = "ingress", Destination = "events", DestinationType = "exchange" },
+            new RabbitMqBindingInfo { Source = "other", Destination = "events", DestinationType = "queue" },
+        ]);
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        IReadOnlyList<RoutingRule> rules = await sut.ListRoutingRulesAsync("exchanges/events", CancellationToken.None);
+
+
+        rules.Select(rule => $"{rule.SourcePath}>{rule.DestinationPath}").ShouldBe(["exchanges/events>queues/orders", "exchanges/ingress>exchanges/events"]);
+    }
+
+    [Fact]
+    public async Task CreateRoutingRuleAsync_FromQueue_ThrowsNotSupported()
+    {
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => sut.CreateRoutingRuleAsync(
+            "queues/orders", "queues/billing", new Dictionary<string, object?>(), CancellationToken.None));
+
+
+        await _management.DidNotReceiveWithAnyArgs().CreateBindingAsync(default!, default!, default, default!, default);
+    }
+
+    [Fact]
+    public async Task DeleteRoutingRuleAsync_ExchangeToExchange_DeletesByPropertiesKey()
+    {
+        await using RabbitMqProvider sut = CreateProvider();
+        RoutingRule rule = new("~", "exchanges/events", "exchanges/archive", new Dictionary<string, object?>());
+
+
+        await sut.DeleteRoutingRuleAsync(rule, CancellationToken.None);
+
+
+        await _management.Received(1).DeleteBindingAsync("events", "archive", false, "~", Arg.Any<CancellationToken>());
     }
 
     private static async Task<List<MessagingEntity>> ListAsync(RabbitMqProvider sut)

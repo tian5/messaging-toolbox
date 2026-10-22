@@ -1073,6 +1073,71 @@ button.test {
         letter-spacing: 0.04em;
     }
 
+.routing-rules {
+    max-width: 900px;
+    margin: 1rem 0;
+}
+
+    .routing-rules-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+        .routing-rules-header h4 {
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+    .routing-rules .hint {
+        margin: 0.4rem 0 0;
+    }
+
+.routing-rules-table {
+    width: 100%;
+    margin-top: 0.4rem;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+    .routing-rules-table th {
+        padding: 0.3rem 0.5rem;
+        border-bottom: 1px solid var(--border);
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        font-weight: 500;
+        text-align: left;
+    }
+
+    .routing-rules-table td {
+        padding: 0.3rem 0.5rem;
+        border-bottom: 1px solid var(--border);
+        vertical-align: middle;
+    }
+
+    .routing-rules-table .direction {
+        color: var(--text-muted);
+        width: 3rem;
+    }
+
+    .routing-rules-table .mono {
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        word-break: break-word;
+    }
+
+.routing-rule-form {
+    max-width: 34rem;
+    padding: 0.8rem 1rem;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+}
+
 .counts {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

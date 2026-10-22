@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using MessagingToolbox.Abstractions;
 using MessagingToolbox.Abstractions.Errors;
 using MessagingToolbox.Abstractions.Messaging;
@@ -313,6 +312,83 @@ public sealed class RabbitMqProvider : IMessagingProvider
 
     public IReadOnlyList<EntityTypeDescriptor> GetEntityTypes() => RabbitMqEntityTypes.All;
 
+    public RoutingRuleType? GetRoutingRuleType() => RabbitMqRoutingRules.Type;
+
+    public async Task<IReadOnlyList<RoutingRule>> ListRoutingRulesAsync(string entityPath, CancellationToken cancellationToken)
+    {
+        using Activity? activity = Telemetry.Source.StartActivity("rabbitmq.bindings.list");
+
+        await RequireManagementAsync(cancellationToken);
+
+        (EntityKind kind, string name) = RabbitMqEntityPath.Parse(entityPath);
+        bool isQueue = kind == EntityKind.Queue;
+        try
+        {
+            IReadOnlyList<RabbitMqBindingInfo> bindings = await _management.ListBindingsAsync(cancellationToken);
+            return bindings
+                .Where(binding => binding.Source.Length > 0
+                    && ((!isQueue && binding.Source == name) || (binding.Destination == name && binding.IsToQueue == isQueue)))
+                .Select(RabbitMqRoutingRules.ToRule)
+                .ToList();
+        }
+        catch (Exception exception) when (RabbitMqExceptionTranslator.CanTranslate(exception))
+        {
+            throw RabbitMqExceptionTranslator.Translate(exception, entityPath);
+        }
+    }
+
+    public async Task<RoutingRule> CreateRoutingRuleAsync(
+        string sourcePath,
+        string destinationPath,
+        IReadOnlyDictionary<string, object?> options,
+        CancellationToken cancellationToken)
+    {
+        using Activity? activity = Telemetry.Source.StartActivity("rabbitmq.bindings.create");
+
+        await RequireManagementAsync(cancellationToken);
+
+        (EntityKind sourceKind, string source) = RabbitMqEntityPath.Parse(sourcePath);
+        (EntityKind destinationKind, string destination) = RabbitMqEntityPath.Parse(destinationPath);
+        if (sourceKind != EntityKind.Exchange || source.Length == 0)
+        {
+            throw new NotSupportedByProviderException("Bindings route from an exchange other than the default one.");
+        }
+
+        RabbitMqBindingDeclaration declaration = RabbitMqRoutingRules.ToDeclaration(options);
+        try
+        {
+            string propertiesKey = await _management.CreateBindingAsync(
+                source, destination, destinationKind == EntityKind.Queue, declaration, cancellationToken);
+            return new RoutingRule(
+                propertiesKey,
+                sourcePath,
+                destinationPath,
+                new Dictionary<string, object?>(options, StringComparer.Ordinal));
+        }
+        catch (Exception exception) when (RabbitMqExceptionTranslator.CanTranslate(exception))
+        {
+            throw RabbitMqExceptionTranslator.Translate(exception, destinationPath);
+        }
+    }
+
+    public async Task DeleteRoutingRuleAsync(RoutingRule rule, CancellationToken cancellationToken)
+    {
+        using Activity? activity = Telemetry.Source.StartActivity("rabbitmq.bindings.delete");
+
+        await RequireManagementAsync(cancellationToken);
+
+        (_, string source) = RabbitMqEntityPath.Parse(rule.SourcePath);
+        (EntityKind destinationKind, string destination) = RabbitMqEntityPath.Parse(rule.DestinationPath);
+        try
+        {
+            await _management.DeleteBindingAsync(source, destination, destinationKind == EntityKind.Queue, rule.Id, cancellationToken);
+        }
+        catch (Exception exception) when (RabbitMqExceptionTranslator.CanTranslate(exception))
+        {
+            throw RabbitMqExceptionTranslator.Translate(exception, rule.DestinationPath);
+        }
+    }
+
     // Declarations go through the management API, which reports refusals with the broker's reason
     // (an AMQP redeclaration failure would close the channel with less to show).
     public async Task<MessagingEntity> CreateOrUpdateEntityAsync(EntityDefinition definition, CancellationToken cancellationToken)
@@ -508,7 +584,6 @@ public sealed class RabbitMqProvider : IMessagingProvider
         }
 
         IReadOnlyDictionary<string, uint> ready = await CountReadyMessagesAsync(queues, cancellationToken);
-        IReadOnlyList<RabbitMqBindingInfo> bindings = await ListBindingsOrNoneAsync(cancellationToken);
 
         List<MessagingEntity> entities = [];
         foreach (RabbitMqQueueInfo queue in queues)
@@ -525,7 +600,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 PeekMode = queue.IsStream ? PeekMode.NonDestructive : PeekMode.Requeue,
                 DeadLetterExchange = queue.DeadLetterExchange,
                 Operations = queue.IsStream ? StreamOperations : EntityOperations.All,
-                Properties = RabbitMqEntityProperties.ForQueue(queue, bindings),
+                Properties = RabbitMqEntityProperties.ForQueue(queue),
                 RuntimeInfo = ToRuntimeInfo(queue, ready),
             });
         }
@@ -542,25 +617,11 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 Kind = EntityKind.Exchange,
                 TypeName = exchange.Type,
                 Status = MessagingEntityStatus.Active,
-                Properties = RabbitMqEntityProperties.ForExchange(exchange, bindings),
+                Properties = RabbitMqEntityProperties.ForExchange(exchange),
             });
         }
 
         return entities;
-    }
-
-    // Bindings only add detail to the listing, so failing to read them must not fail discovery.
-    private async Task<IReadOnlyList<RabbitMqBindingInfo>> ListBindingsOrNoneAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await _management.ListBindingsAsync(cancellationToken);
-        }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogDebug(exception, "Listing RabbitMQ bindings failed; entities are shown without them.");
-            return [];
-        }
     }
 
     // Without the management API, AMQP can't list anything: show the queues the host configured
@@ -924,6 +985,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
         Interlocked.Exchange(ref _capabilities, RabbitMqCapabilities.Default with
         {
             CanManageEntities = _managementAvailable,
+            CanManageRules = _managementAvailable,
             ManagementUnavailableReason = unavailableReason is null
                 ? null
                 : $"The RabbitMQ management API is unavailable ({unavailableReason}). Only queues listed in configuration are shown and entities can't be managed; enable the management plugin for discovery, counts and management.",

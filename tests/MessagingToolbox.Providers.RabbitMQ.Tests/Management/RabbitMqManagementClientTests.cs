@@ -90,29 +90,65 @@ public class RabbitMqManagementClientTests
         exception.Message.ShouldBe("inequivalent arg 'type' for exchange 'events'");
     }
 
+    [Fact]
+    public async Task CreateBindingAsync_QueueDestination_PostsAndReturnsThePropertiesKey()
+    {
+        _handler.Respond(string.Empty, HttpStatusCode.Created, location: "api/bindings/%2F/e/events/q/billing/invoice.%2A");
+
+
+        string key = await _sut.CreateBindingAsync("events", "billing", destinationIsQueue: true, new RabbitMqBindingDeclaration("invoice.*", new Dictionary<string, object>()), CancellationToken.None);
+
+
+        _handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
+        _handler.LastRequest.RequestUri!.AbsoluteUri.ShouldBe("http://broker:15672/api/bindings/%2F/e/events/q/billing");
+        _handler.LastBody.ShouldBe("""{"routing_key":"invoice.*","arguments":{}}""");
+        key.ShouldBe("invoice.*");
+    }
+
+    [Fact]
+    public async Task DeleteBindingAsync_ExchangeDestination_DeletesByEscapedPropertiesKey()
+    {
+        _handler.Respond(string.Empty, HttpStatusCode.NoContent);
+
+
+        await _sut.DeleteBindingAsync("events", "archive", destinationIsQueue: false, "~abc", CancellationToken.None);
+
+
+        _handler.LastRequest!.Method.ShouldBe(HttpMethod.Delete);
+        _handler.LastRequest.RequestUri!.AbsoluteUri.ShouldBe("http://broker:15672/api/bindings/%2F/e/events/e/archive/~abc");
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         private string _body = "[]";
         private HttpStatusCode _status = HttpStatusCode.OK;
+        private string? _location;
 
         public HttpRequestMessage? LastRequest { get; private set; }
 
         public string? LastBody { get; private set; }
 
-        public void Respond(string body, HttpStatusCode status = HttpStatusCode.OK)
+        public void Respond(string body, HttpStatusCode status = HttpStatusCode.OK, string? location = null)
         {
             _body = body;
             _status = status;
+            _location = location;
         }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             LastRequest = request;
             LastBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
-            return new HttpResponseMessage(_status)
+            HttpResponseMessage response = new(_status)
             {
                 Content = new StringContent(_body, Encoding.UTF8, "application/json"),
             };
+            if (_location is not null)
+            {
+                response.Headers.Location = new Uri(_location, UriKind.Relative);
+            }
+
+            return response;
         }
     }
 }

@@ -799,6 +799,25 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
 
     public IReadOnlyList<EntityTypeDescriptor> GetEntityTypes() => AzureServiceBusEntityTypes.All;
 
+    // Subscription rules (filters and actions, FR-6.3) are the Service Bus routing rules; not yet.
+    public RoutingRuleType? GetRoutingRuleType() => null;
+
+    public Task<IReadOnlyList<RoutingRule>> ListRoutingRulesAsync(string entityPath, CancellationToken cancellationToken)
+        => throw RulesNotSupported();
+
+    public Task<RoutingRule> CreateRoutingRuleAsync(
+        string sourcePath,
+        string destinationPath,
+        IReadOnlyDictionary<string, object?> options,
+        CancellationToken cancellationToken)
+        => throw RulesNotSupported();
+
+    public Task DeleteRoutingRuleAsync(RoutingRule rule, CancellationToken cancellationToken)
+        => throw RulesNotSupported();
+
+    private static NotSupportedByProviderException RulesNotSupported()
+        => new("Subscription rules can't be managed from the toolbox yet.");
+
     public async Task<MessagingEntity> CreateOrUpdateEntityAsync(EntityDefinition definition, CancellationToken cancellationToken)
     {
         await EnsureCapabilitiesProbedAsync(cancellationToken);

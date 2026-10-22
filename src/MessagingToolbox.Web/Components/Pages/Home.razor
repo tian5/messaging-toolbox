@@ -36,6 +36,13 @@
                            Watched="IsSelectedNodeWatched"
                            ToggleWatch="ToggleWatch" />
 
+            @if (!ActiveConnectionWorkspace.SelectedNode.IsSubQueueNode)
+            {
+                <RoutingRulesPanel ConnectionId="_selectedConnection!.Id"
+                                   Node="ActiveConnectionWorkspace.SelectedNode"
+                                   Entities="ActiveConnectionWorkspace.Tree ?? []" />
+            }
+
             @if (CanPeek)
             {
                 <PeekControls Workspace="ActiveConnectionWorkspace"

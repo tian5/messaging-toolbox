@@ -33,12 +33,13 @@ public class AzureServiceBusProviderTests
     }
 
     [Fact]
-    public async Task Capabilities_CloudConnection_ExposesManagementPlane()
+    public async Task Capabilities_CloudConnection_ExposesEntityManagementButNoRulesYet()
     {
         await using AzureServiceBusProvider provider = CreateProvider(CloudConnectionString);
 
         provider.Capabilities.CanManageEntities.ShouldBeTrue();
-        provider.Capabilities.CanManageRules.ShouldBeTrue();
+        provider.Capabilities.CanManageRules.ShouldBeFalse();
+        provider.GetRoutingRuleType().ShouldBeNull();
         provider.Capabilities.MaxMessageSizeBytes.ShouldBe(100 * 1024 * 1024);
     }
 

@@ -15,7 +15,9 @@ public static class AzureServiceBusCapabilities
     public static readonly ProviderCapabilities Cloud = new()
     {
         CanManageEntities = true,
-        CanManageRules = true,
+
+        // Subscription rules (FR-6.3) aren't implemented yet; the provider describes no routing rule type.
+        CanManageRules = false,
         CanPeek = true,
         CanReceiveSettle = true,
         SupportsSessions = true,

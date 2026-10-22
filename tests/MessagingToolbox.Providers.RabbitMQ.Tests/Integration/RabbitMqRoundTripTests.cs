@@ -29,7 +29,6 @@ public class RabbitMqRoundTripTests : IClassFixture<RabbitMqFixture>
             await channel.QueueDeclareAsync("rt-list-quorum", true, false, false, QueueType("quorum"));
             await channel.QueueDeclareAsync("rt-list-stream", true, false, false, QueueType("stream"));
             await channel.ExchangeDeclareAsync("rt-list-exchange", ExchangeType.Topic, durable: true);
-            await channel.QueueBindAsync("rt-list-quorum", "rt-list-exchange", "orders.*");
         });
         await using RabbitMqProvider sut = _fixture.CreateProvider();
 
@@ -41,7 +40,6 @@ public class RabbitMqRoundTripTests : IClassFixture<RabbitMqFixture>
         quorum.PeekMode.ShouldBe(PeekMode.Requeue);
         quorum.TypeName.ShouldBe("quorum");
         quorum.Properties.ShouldContain(new EntityProperty("Settings", "Durable", "yes"));
-        quorum.Properties.ShouldContain(new EntityProperty("Bound from", "rt-list-exchange", "orders.*") { Key = "routing key" });
         MessagingEntity stream = entities.Single(entity => entity.Path == "queues/rt-list-stream");
         stream.PeekMode.ShouldBe(PeekMode.NonDestructive);
         stream.TypeName.ShouldBe("stream");
@@ -350,6 +348,40 @@ public class RabbitMqRoundTripTests : IClassFixture<RabbitMqFixture>
 
         (await ListAsync(sut)).ShouldNotContain(entity => entity.Path == "exchanges/rt-manage-exchange");
     }
+
+    [BrokerFact]
+    public async Task CreateRoutingRuleAsync_TopicBinding_RoutesMatchingMessagesUntilDeleted()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.QueueDeclareAsync("rt-bind-queue", true, false, false);
+            await channel.ExchangeDeclareAsync("rt-bind-exchange", ExchangeType.Topic, durable: true);
+        });
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+
+
+        RoutingRule created = await sut.CreateRoutingRuleAsync(
+            "exchanges/rt-bind-exchange", "queues/rt-bind-queue", new Dictionary<string, object?> { ["routing-key"] = "invoice.*" }, CancellationToken.None);
+        await sut.SendAsync("exchanges/rt-bind-exchange", [Message("routed", "invoice.paid")], CancellationToken.None);
+        MessagingProviderException unroutable = await Should.ThrowAsync<MessagingProviderException>(
+            () => sut.SendAsync("exchanges/rt-bind-exchange", [Message("unrouted", "order.paid")], CancellationToken.None));
+        RoutingRule listed = (await sut.ListRoutingRulesAsync("queues/rt-bind-queue", CancellationToken.None)).ShouldHaveSingleItem();
+        await sut.DeleteRoutingRuleAsync(listed, CancellationToken.None);
+
+
+        unroutable.Message.ShouldContain("not routed");
+        listed.Id.ShouldBe(created.Id);
+        listed.SourcePath.ShouldBe("exchanges/rt-bind-exchange");
+        listed.Options["routing-key"].ShouldBe("invoice.*");
+        (await sut.ListRoutingRulesAsync("queues/rt-bind-queue", CancellationToken.None)).ShouldBeEmpty();
+        Body((await sut.ReceiveAsync(new ReceiveRequest("queues/rt-bind-queue", MessageSubQueue.Active, 10, null), CancellationToken.None)).ShouldHaveSingleItem()).ShouldBe("routed");
+    }
+
+    private static ToolboxMessage Message(string body, string routingKey) => new()
+    {
+        Body = Encoding.UTF8.GetBytes(body),
+        RoutingKey = routingKey,
+    };
 
     private static Dictionary<string, object?> QueueType(string type) => new() { ["x-queue-type"] = type };
 

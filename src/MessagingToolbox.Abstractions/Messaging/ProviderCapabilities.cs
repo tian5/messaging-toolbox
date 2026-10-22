@@ -9,7 +9,7 @@ public sealed record ProviderCapabilities
     /// <summary>Create/update/delete entities (queues, topics, subscriptions, exchanges).</summary>
     public required bool CanManageEntities { get; init; }
 
-    /// <summary>Manage routing rules: subscription filters and actions, or exchange bindings.</summary>
+    /// <summary>Create and delete routing rules (<see cref="IMessagingProvider.GetRoutingRuleType"/>): RabbitMQ bindings today.</summary>
     public required bool CanManageRules { get; init; }
 
     /// <summary>Message inspection without consuming; see <see cref="MessagingEntity.PeekMode"/> for its side effects.</summary>

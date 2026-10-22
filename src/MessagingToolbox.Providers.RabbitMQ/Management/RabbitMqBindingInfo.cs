@@ -24,5 +24,9 @@ public sealed record RabbitMqBindingInfo
     [JsonPropertyName("arguments")]
     public Dictionary<string, JsonElement>? Arguments { get; init; }
 
+    /// <summary>Identifies the binding among those between the same source and destination; needed to delete it.</summary>
+    [JsonPropertyName("properties_key")]
+    public string PropertiesKey { get; init; } = string.Empty;
+
     public bool IsToQueue => string.Equals(DestinationType, "queue", StringComparison.Ordinal);
 }

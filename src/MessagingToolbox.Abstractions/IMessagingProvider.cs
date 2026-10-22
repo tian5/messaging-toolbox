@@ -111,6 +111,25 @@ public interface IMessagingProvider : IAsyncDisposable
     Task DeleteEntityAsync(string entityPath, CancellationToken cancellationToken);
 
     /// <summary>
+    /// The routing rules this connection manages (ADR 22); null when it has none, e.g. a broker
+    /// that routes by entity hierarchy alone.
+    /// </summary>
+    RoutingRuleType? GetRoutingRuleType();
+
+    /// <summary>Routing rules that route from or to the entity; providers leave out implicit ones they can't change.</summary>
+    Task<IReadOnlyList<RoutingRule>> ListRoutingRulesAsync(string entityPath, CancellationToken cancellationToken);
+
+    /// <summary>Creates a rule routing from <paramref name="sourcePath"/> to <paramref name="destinationPath"/>.</summary>
+    Task<RoutingRule> CreateRoutingRuleAsync(
+        string sourcePath,
+        string destinationPath,
+        IReadOnlyDictionary<string, object?> options,
+        CancellationToken cancellationToken);
+
+    /// <summary>Deletes a rule obtained from <see cref="ListRoutingRulesAsync"/>.</summary>
+    Task DeleteRoutingRuleAsync(RoutingRule rule, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Reads the management definition of an existing entity so it can be edited. Throws
     /// <see cref="Errors.MessagingEntityNotFoundException"/> when the entity does not exist.
     /// </summary>

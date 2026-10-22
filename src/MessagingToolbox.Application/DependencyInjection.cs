@@ -4,6 +4,8 @@ using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Features.Connections.Commands.SaveConnection;
 using MessagingToolbox.Application.Features.Management.Commands.CreateOrUpdateEntity;
 using MessagingToolbox.Application.Features.Management.Commands.DeleteEntity;
+using MessagingToolbox.Application.Features.Management.Commands.CreateRoutingRule;
+using MessagingToolbox.Application.Features.Management.Commands.DeleteRoutingRule;
 using MessagingToolbox.Application.Features.Messages.Commands.DeadLetterMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.DeleteMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.RepairAndResubmitMessage;
@@ -51,5 +53,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<ReceiveDeferredMessagesQuery>, ReceiveDeferredMessagesQueryValidator>();
         services.AddScoped<IValidator<CreateOrUpdateEntityCommand>, CreateOrUpdateEntityCommandValidator>();
         services.AddScoped<IValidator<DeleteEntityCommand>, DeleteEntityCommandValidator>();
+        services.AddScoped<IValidator<CreateRoutingRuleCommand>, CreateRoutingRuleCommandValidator>();
+        services.AddScoped<IValidator<DeleteRoutingRuleCommand>, DeleteRoutingRuleCommandValidator>();
     }
 }

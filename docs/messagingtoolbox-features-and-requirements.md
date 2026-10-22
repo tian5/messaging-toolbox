@@ -224,7 +224,8 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
   window, require session, dead-letter on expiration, forward-to, auto-delete-on-idle,
   enable/disable (send/receive/both).
 - FR-6.3 Subscription rules: list, create, edit, delete — SQL filters, correlation filters,
-  rule actions.
+  rule actions. To be implemented through the routing-rule contract that RabbitMQ bindings use
+  (ADR 22).
 - FR-6.4 Import/export namespace entity definitions (JSON), ServiceBusExplorer-compatible
   where feasible.
 - FR-6.5 (Emulator) config.json editor — **dropped**. Emulator entities are managed via the
@@ -251,8 +252,8 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 - FR-9.2 Explorer: queues (classic, quorum, stream) and user exchanges from the management API,
   with counts; without the API, config-listed queues counted over AMQP and the reason shown.
   Dead-letter queues are ordinary queues (no DLQ sub-node). Queue and exchange types are tagged
-  in the tree; bindings (bound from / routes to, with routing keys), durable/auto-delete/exclusive,
-  arguments, policy and consumers are listed under Properties. Streams offer peek and send only, with the reason shown (ADR 20). *(Done, Phase 4a.)*
+  in the tree; durable/auto-delete/exclusive, arguments, policy and consumers are listed under
+  Properties, and bindings in their own panel (FR-9.7). Streams offer peek and send only, with the reason shown (ADR 20). *(Done, Phase 4a.)*
 - FR-9.3 Peek: classic and quorum queues by get + nack-requeue, only on an explicit Load and
   disclosed next to it (ADR 18); streams read from their first offset without side effects.
   Death history (`x-death`, `x-first-death-*`) and delivery counts shown as broker properties.
@@ -267,8 +268,11 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 - FR-9.6 Manage queues (type, durability, TTL, length limits, overflow, dead-lettering, delivery
   limit, stream retention) and exchanges (type, durability, internal, alternate exchange) through
   the management API; refusals show the broker's reason. *(Done, Phase 4c.)*
-- FR-9.7 Bindings (list, create, delete); move messages with a dynamic shovel; stream offsets and
-  live watch on streams. *(Phase 4c.)*
+- FR-9.7 Bindings: a panel in the entity details lists the bindings from and to the selected
+  queue or exchange (routing key, match arguments) and creates or deletes them, confirmed and
+  audited (ADR 22). *(Done, Phase 4c.)*
+- FR-9.8 Move messages with a dynamic shovel; stream offsets and live watch on streams.
+  *(Phase 4c.)*
 
 ### FR-8 Developer-experience extras (post-MVP)
 - Load/burst sender (rate, count, template-driven) for testing consumers.

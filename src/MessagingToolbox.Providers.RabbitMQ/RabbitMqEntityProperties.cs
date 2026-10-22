@@ -15,8 +15,6 @@ internal static class RabbitMqEntityProperties
     private const string Settings = "Settings";
     private const string Arguments = "Arguments";
     private const string Runtime = "Runtime";
-    private const string BoundFrom = "Bound from";
-    private const string RoutesTo = "Routes to";
 
     private enum ValueKind
     {
@@ -49,13 +47,9 @@ internal static class RabbitMqEntityProperties
         ["alternate-exchange"] = ("Alternate exchange", ValueKind.Exchange),
     };
 
-    // Bindings come first: where messages come from and go to is what the details are read for.
-    // The default exchange's implicit binding (routing key = queue name) is on every queue and says nothing.
-    public static IReadOnlyList<EntityProperty> ForQueue(RabbitMqQueueInfo queue, IReadOnlyList<RabbitMqBindingInfo> bindings)
+    public static IReadOnlyList<EntityProperty> ForQueue(RabbitMqQueueInfo queue)
     {
         List<EntityProperty> properties = [];
-        AddBindings(properties, BoundFrom, bindings.Where(binding => binding.IsToQueue && binding.Destination == queue.Name && binding.Source.Length > 0),
-            binding => binding.Source);
         AddFlag(properties, "Durable", queue.Durable);
         AddFlag(properties, "Auto-delete", queue.AutoDelete);
         AddFlag(properties, "Exclusive", queue.Exclusive);
@@ -83,33 +77,13 @@ internal static class RabbitMqEntityProperties
         return properties;
     }
 
-    public static IReadOnlyList<EntityProperty> ForExchange(RabbitMqExchangeInfo exchange, IReadOnlyList<RabbitMqBindingInfo> bindings)
+    public static IReadOnlyList<EntityProperty> ForExchange(RabbitMqExchangeInfo exchange)
     {
         List<EntityProperty> properties = [];
-        AddBindings(properties, BoundFrom, bindings.Where(binding => !binding.IsToQueue && binding.Destination == exchange.Name && binding.Source.Length > 0),
-            binding => binding.Source);
-        AddBindings(properties, RoutesTo, bindings.Where(binding => binding.Source == exchange.Name),
-            binding => binding.IsToQueue ? binding.Destination : $"{binding.Destination} (exchange)");
         AddFlag(properties, "Durable", exchange.Durable);
         AddFlag(properties, "Auto-delete", exchange.AutoDelete);
         AddArguments(properties, Arguments, exchange.Arguments, skip: null);
         return properties;
-    }
-
-    // One row per binding: the other end as the label, the routing key (and any match arguments) as the value.
-    private static void AddBindings(List<EntityProperty> properties, string group, IEnumerable<RabbitMqBindingInfo> bindings, Func<RabbitMqBindingInfo, string> otherEnd)
-    {
-        foreach (RabbitMqBindingInfo binding in bindings.OrderBy(otherEnd, StringComparer.Ordinal).ThenBy(binding => binding.RoutingKey, StringComparer.Ordinal))
-        {
-            string value = binding.RoutingKey.Length == 0 ? "(no routing key)" : binding.RoutingKey;
-            if (binding.Arguments is { Count: > 0 } arguments)
-            {
-                value += " · " + string.Join(", ", arguments.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                    .Select(pair => $"{pair.Key}={Format(pair.Value, ValueKind.Text)}"));
-            }
-
-            properties.Add(new EntityProperty(group, otherEnd(binding), value) { Key = "routing key" });
-        }
     }
 
     private static void AddFlag(List<EntityProperty> properties, string name, bool? value)

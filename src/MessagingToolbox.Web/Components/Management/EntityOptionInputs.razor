@@ -1,0 +1,55 @@
+@* Inputs for provider-described options (ADR 21/22), bound to an EntityOptionForm. *@
+@foreach (EntityOptionDescriptor option in Options)
+{
+    bool locked = IsLocked?.Invoke(option) == true;
+    @if (option.Type == EntityOptionType.Boolean)
+    {
+        <label class="checkbox-row" title="@option.Description">
+            <input type="checkbox" checked="@Form.Flags.GetValueOrDefault(option.Key)" disabled="@locked"
+                   @onchange="args => Form.Flags[option.Key] = args.Value is true" />
+            @option.Label
+        </label>
+    }
+    else
+    {
+        <label title="@option.Description">
+            @option.Label
+            @if (option.Type == EntityOptionType.Choice)
+            {
+                <select value="@Form.Texts.GetValueOrDefault(option.Key)" disabled="@locked"
+                        @onchange="args => Form.Texts[option.Key] = args.Value?.ToString() ?? string.Empty">
+                    @if (option.DefaultValue is null)
+                    {
+                        <option value="">(broker default)</option>
+                    }
+                    @foreach (string choice in option.Choices)
+                    {
+                        <option value="@choice">@choice</option>
+                    }
+                </select>
+            }
+            else
+            {
+                <input type="@(option.Type == EntityOptionType.Integer ? "number" : "text")"
+                       value="@Form.Texts.GetValueOrDefault(option.Key)" placeholder="@option.Placeholder" disabled="@locked"
+                       @onchange="args => Form.Texts[option.Key] = args.Value?.ToString() ?? string.Empty" />
+            }
+            @if (option.Description is { } description)
+            {
+                <span class="hint">@description</span>
+            }
+        </label>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<EntityOptionDescriptor> Options { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public EntityOptionForm Form { get; set; } = default!;
+
+    /// <summary>Options shown read-only (e.g. create-only settings while editing).</summary>
+    [Parameter]
+    public Func<EntityOptionDescriptor, bool>? IsLocked { get; set; }
+}

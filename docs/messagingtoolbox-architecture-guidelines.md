@@ -95,7 +95,7 @@ Abstractions/
                               # settlement metadata (sequence number, State Active/Deferred/Scheduled,
                               # lock token, delivery count, enqueued time, DLQ reason/description),
                               # RoutingKey, read-only BrokerProperties for display (ADR 17)
-    SubscriptionRuleInfo.cs   # filter kind (SQL/correlation), expression, action
+    RoutingRuleType.cs / RoutingRule.cs  # provider-described routing rules (RabbitMQ bindings) — ADR 22
     ProviderCapabilities.cs   # record of flags, see below
     Enums.cs                  # EntityKind, MessageSubQueue (Active/Scheduled/DeadLetter/TransferDeadLetter),
                               # MessageState, SettlementOperation, ReceiveMode, ProviderKind, MessagingEntityStatus,
@@ -412,9 +412,7 @@ Providers.RabbitMQ/
   dead-lettered message reports `DeadLetterSourcePath` from `x-first-death-queue`, the default
   target of a resubmit; `PrepareResubmitAsync` clones the typed and application properties only.
 - **Entity details:** the queue and exchange type (classic/quorum/stream, direct/topic/…) is
-  reported as `MessagingEntity.TypeName`; bindings (read once per listing from the management
-  API: a queue's source exchanges, an exchange's destinations, each with its routing key and
-  match arguments; the default exchange's implicit bindings are left out), durable/auto-delete/exclusive, the `x-*` arguments and
+  reported as `MessagingEntity.TypeName`; durable/auto-delete/exclusive, the `x-*` arguments and
   the effective policy (one label table, so `x-message-ttl` and a policy's `message-ttl` read the
   same), consumers and unacknowledged counts as `Properties`. Both are display-only: the tree
   and details panel render them and never branch on them, so behaviour stays on `PeekMode` and
@@ -423,6 +421,11 @@ Providers.RabbitMQ/
 - **Streams (ADR 20):** report `EntityOperations` without receive, settle-later and purge, with
   the reason as the hint; the UI offers only peek and send, and the provider still refuses the
   rest.
+- **Bindings (ADR 22):** the provider's routing rules: from an exchange to a queue or exchange,
+  with a routing key and, for headers exchanges, match arguments (`key=value` pairs). Listed,
+  created and deleted through the management API, identified by its properties key; the default
+  exchange's implicit binding to every queue is left out, since it can't be changed. Shown in a
+  bindings panel in the entity details, both directions.
 - **Send:** queues through the default exchange, exchanges with `ToolboxMessage.RoutingKey`;
   publisher confirms plus `mandatory`, so an unroutable message is an error, not a silent drop.
 
@@ -808,3 +811,21 @@ Aspire.Hosting/
     (shown as is), and enables `CanManageEntities` only while that API answers. Rejected:
     per-broker editor components (every new broker would need UI work), and passing raw JSON
     arguments (no validation, no labels).
+22. **Routing rules are described by the provider and managed per entity** — RabbitMQ routes by
+    bindings, which the toolbox could only show, not change; Service Bus has the analogous
+    subscription rules. Providers now describe their rules through
+    `IMessagingProvider.GetRoutingRuleType()`: a `RoutingRuleType` with a label, the entity kinds a
+    rule routes from and to, and its options (the ADR 21 `EntityOptionDescriptor`s), or null when
+    the broker has none. `ListRoutingRulesAsync(entityPath)` returns the `RoutingRule`s from or to
+    an entity (provider id, source path, destination path, options), and
+    `CreateRoutingRuleAsync`/`DeleteRoutingRuleAsync` change them, gated by `CanManageRules`,
+    audited, and confirmed in the UI before a delete. The entity details show a rules panel built
+    from that description (direction, the entity at the other end, one column per option), with
+    the options rendered by the same inputs as the entity editor. A rule change doesn't reload the
+    tree (nothing in it depends on routing), so the selection stays. RabbitMQ bindings are the first
+    implementation (exchange → queue or exchange; routing key; match arguments as `key=value`
+    pairs, compared as strings) and its `CanManageRules` follows the management API. Service Bus
+    subscription rules (FR-6.3) will implement the same contract; until then the provider
+    describes no rule type and its cloud profile no longer claims `CanManageRules`. The unused
+    `SubscriptionRuleInfo` is removed. Rejected: showing bindings only as entity properties (read
+    only, and hidden behind the properties toggle), and a per-broker bindings component.

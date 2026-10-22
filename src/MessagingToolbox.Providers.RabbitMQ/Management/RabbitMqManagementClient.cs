@@ -79,7 +79,33 @@ public sealed class RabbitMqManagementClient : IRabbitMqManagementClient
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
+    public async Task<string> CreateBindingAsync(
+        string source,
+        string destination,
+        bool destinationIsQueue,
+        RabbitMqBindingDeclaration declaration,
+        CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(BindingsUrl(source, destination, destinationIsQueue), declaration, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        // The API answers 201 with the new binding's URL, whose last segment is its properties key.
+        return response.Headers.Location is { } location
+            ? Uri.UnescapeDataString(location.OriginalString.TrimEnd('/').Split('/')[^1])
+            : string.Empty;
+    }
+
+    public async Task DeleteBindingAsync(string source, string destination, bool destinationIsQueue, string propertiesKey, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _httpClient.DeleteAsync(
+            $"{BindingsUrl(source, destination, destinationIsQueue)}/{Uri.EscapeDataString(propertiesKey)}", cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
     public void Dispose() => _httpClient.Dispose();
+
+    private string BindingsUrl(string source, string destination, bool destinationIsQueue)
+        => $"api/bindings/{_virtualHost}/e/{Uri.EscapeDataString(source)}/{(destinationIsQueue ? "q" : "e")}/{Uri.EscapeDataString(destination)}";
 
     private string QueueUrl(string name) => $"api/queues/{_virtualHost}/{Uri.EscapeDataString(name)}";
 

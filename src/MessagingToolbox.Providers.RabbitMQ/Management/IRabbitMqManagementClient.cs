@@ -22,6 +22,16 @@ public interface IRabbitMqManagementClient : IDisposable
     /// <summary>Every binding in the vhost, including the default exchange's implicit ones.</summary>
     Task<IReadOnlyList<RabbitMqBindingInfo>> ListBindingsAsync(CancellationToken cancellationToken);
 
+    /// <summary>Binds <paramref name="destination"/> (a queue, or an exchange) to the source exchange; returns the binding's properties key.</summary>
+    Task<string> CreateBindingAsync(
+        string source,
+        string destination,
+        bool destinationIsQueue,
+        RabbitMqBindingDeclaration declaration,
+        CancellationToken cancellationToken);
+
+    Task DeleteBindingAsync(string source, string destination, bool destinationIsQueue, string propertiesKey, CancellationToken cancellationToken);
+
     /// <summary>Declares the queue; a no-op when it exists with the same settings, a 400 when they differ.</summary>
     Task DeclareQueueAsync(string name, RabbitMqQueueDeclaration declaration, CancellationToken cancellationToken);
 

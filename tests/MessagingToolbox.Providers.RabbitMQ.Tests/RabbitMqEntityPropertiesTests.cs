@@ -19,7 +19,7 @@ public class RabbitMqEntityPropertiesTests
         };
 
 
-        IReadOnlyList<EntityProperty> properties = RabbitMqEntityProperties.ForQueue(queue, []);
+        IReadOnlyList<EntityProperty> properties = RabbitMqEntityProperties.ForQueue(queue);
 
 
         properties.ShouldNotContain(property => property.Key == "x-queue-type");
@@ -35,7 +35,7 @@ public class RabbitMqEntityPropertiesTests
         RabbitMqQueueInfo queue = new() { Name = "orders", Arguments = Json("""{"x-custom":{"a":1}}""") };
 
 
-        IReadOnlyList<EntityProperty> properties = RabbitMqEntityProperties.ForQueue(queue, []);
+        IReadOnlyList<EntityProperty> properties = RabbitMqEntityProperties.ForQueue(queue);
 
 
         properties.ShouldHaveSingleItem().ShouldBe(new EntityProperty("Arguments", "x-custom", """{"a":1}"""));
@@ -56,7 +56,7 @@ public class RabbitMqEntityPropertiesTests
         };
 
 
-        IReadOnlyList<EntityProperty> properties = RabbitMqEntityProperties.ForQueue(queue, []);
+        IReadOnlyList<EntityProperty> properties = RabbitMqEntityProperties.ForQueue(queue);
 
 
         properties.ShouldContain(new EntityProperty("Settings", "Durable", "yes"));
@@ -73,53 +73,13 @@ public class RabbitMqEntityPropertiesTests
         RabbitMqExchangeInfo exchange = new() { Name = "events", Durable = true, Arguments = Json("""{"alternate-exchange":"unrouted"}""") };
 
 
-        IReadOnlyList<EntityProperty> properties = RabbitMqEntityProperties.ForExchange(exchange, []);
+        IReadOnlyList<EntityProperty> properties = RabbitMqEntityProperties.ForExchange(exchange);
 
 
         properties.ShouldBe(
         [
             new EntityProperty("Settings", "Durable", "yes"),
             new EntityProperty("Arguments", "Alternate exchange", "unrouted") { Key = "alternate-exchange" },
-        ]);
-    }
-
-    [Fact]
-    public void ForQueue_Bindings_ListsSourceExchangesFirstWithoutTheDefaultExchange()
-    {
-        RabbitMqQueueInfo queue = new() { Name = "billing", Durable = true };
-        RabbitMqBindingInfo[] bindings =
-        [
-            new() { Source = string.Empty, Destination = "billing", DestinationType = "queue", RoutingKey = "billing" },
-            new() { Source = "events", Destination = "billing", DestinationType = "queue", RoutingKey = "invoice.*" },
-            new() { Source = "events", Destination = "audit", DestinationType = "queue", RoutingKey = "#" },
-        ];
-
-
-        IReadOnlyList<EntityProperty> properties = RabbitMqEntityProperties.ForQueue(queue, bindings);
-
-
-        properties[0].ShouldBe(new EntityProperty("Bound from", "events", "invoice.*") { Key = "routing key" });
-        properties.Count(property => property.Group == "Bound from").ShouldBe(1);
-    }
-
-    [Fact]
-    public void ForExchange_Bindings_ListsDestinationsAndHeaderArguments()
-    {
-        RabbitMqExchangeInfo exchange = new() { Name = "events" };
-        RabbitMqBindingInfo[] bindings =
-        [
-            new() { Source = "events", Destination = "billing", DestinationType = "queue", RoutingKey = "invoice.*" },
-            new() { Source = "events", Destination = "archive", DestinationType = "exchange", Arguments = Json("""{"x-match":"all","type":"invoice"}""") },
-        ];
-
-
-        IReadOnlyList<EntityProperty> properties = RabbitMqEntityProperties.ForExchange(exchange, bindings);
-
-
-        properties.ShouldBe(
-        [
-            new EntityProperty("Routes to", "archive (exchange)", "(no routing key) · type=invoice, x-match=all") { Key = "routing key" },
-            new EntityProperty("Routes to", "billing", "invoice.*") { Key = "routing key" },
         ]);
     }
 
