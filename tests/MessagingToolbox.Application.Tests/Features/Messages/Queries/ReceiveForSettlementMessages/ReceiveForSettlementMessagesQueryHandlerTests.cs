@@ -24,6 +24,7 @@ public class ReceiveForSettlementMessagesQueryHandlerTests
     {
         _providerFactory = Substitute.For<IMessagingProviderFactory>();
         _provider = Substitute.For<IMessagingProvider>();
+        _provider.Capabilities.Returns(TestCapabilities.DataPlane);
         IConnectionCatalog connectionCatalog = Substitute.For<IConnectionCatalog>();
         _auditLog = Substitute.For<IAuditLog>();
         _providerFactory.GetProviderAsync(ConnectionId, Arg.Any<CancellationToken>()).Returns(_provider);
@@ -75,6 +76,20 @@ public class ReceiveForSettlementMessagesQueryHandlerTests
 
         await Should.ThrowAsync<NotSupportedByProviderException>(() => _sut.Handle(
             new ReceiveForSettlementMessagesQuery(ConnectionId, "orders", MessageSubQueue.Active, 10, null, SessionId: "order-42"),
+            CancellationToken.None).AsTask());
+
+
+        await _provider.DidNotReceiveWithAnyArgs().ReceiveForSettlementAsync(default!, default, default, default, default);
+    }
+
+    [Fact]
+    public async Task Handle_SettlementUnsupported_ThrowsWithoutReceiving()
+    {
+        _provider.Capabilities.Returns(TestCapabilities.DataPlane with { CanReceiveSettle = false });
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => _sut.Handle(
+            new ReceiveForSettlementMessagesQuery(ConnectionId, "queues/orders", MessageSubQueue.Active, 10, null),
             CancellationToken.None).AsTask());
 
 

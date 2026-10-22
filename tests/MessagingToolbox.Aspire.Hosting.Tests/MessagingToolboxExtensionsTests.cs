@@ -207,4 +207,60 @@ public class MessagingToolboxExtensionsTests
         builder.ExecutionContext.IsPublishMode.ShouldBeTrue();
         builder.Resources.OfType<MessagingToolboxResource>().ShouldBeEmpty();
     }
+
+    [Fact]
+    public async Task WithMessagingToolboxConnection_RabbitMqWithManagementPlugin_EmitsKindAndManagementEndpoint()
+    {
+        (IDistributedApplicationBuilder builder, IResourceBuilder<ContainerResource> host) = CreateBuilderWithHost();
+        IResourceBuilder<RabbitMQServerResource> rabbit = builder.AddRabbitMQ("rabbit").WithManagementPlugin();
+
+
+        host.WithMessagingToolboxConnection(rabbit);
+
+
+        Dictionary<string, object> environment = await ResolveEnvironmentAsync(host.Resource);
+
+        Value(environment, "ToolboxOptions__Connections__0__Name").ShouldBe("rabbit");
+        Value(environment, "ToolboxOptions__Connections__0__Kind").ShouldBe("RabbitMQ");
+        EndpointReference management = environment["ToolboxOptions__Connections__0__AdminEndpoint"].ShouldBeOfType<EndpointReference>();
+        management.EndpointName.ShouldBe("management");
+        management.Resource.ShouldBeSameAs(rabbit.Resource);
+    }
+
+    [Fact]
+    public async Task WithMessagingToolboxConnection_RabbitMqWithoutManagementPlugin_OmitsManagementEndpoint()
+    {
+        (IDistributedApplicationBuilder builder, IResourceBuilder<ContainerResource> host) = CreateBuilderWithHost();
+        IResourceBuilder<RabbitMQServerResource> rabbit = builder.AddRabbitMQ("rabbit");
+
+
+        host.WithMessagingToolboxConnection(rabbit);
+
+
+        Dictionary<string, object> environment = await ResolveEnvironmentAsync(host.Resource);
+
+        Value(environment, "ToolboxOptions__Connections__0__Kind").ShouldBe("RabbitMQ");
+        environment.Keys.ShouldNotContain("ToolboxOptions__Connections__0__AdminEndpoint");
+    }
+
+    [Fact]
+    public async Task WithMessagingToolbox_ServiceBusAndRabbitMq_ShareOneToolboxWithTheirKinds()
+    {
+        IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(
+            new DistributedApplicationOptions { Args = [], DisableDashboard = true });
+        IResourceBuilder<AzureServiceBusResource> messaging = builder.AddAzureServiceBus("messaging").RunAsEmulator();
+        IResourceBuilder<RabbitMQServerResource> rabbit = builder.AddRabbitMQ("rabbit").WithManagementPlugin();
+
+
+        messaging.WithMessagingToolbox();
+        rabbit.WithMessagingToolbox();
+
+
+        MessagingToolboxResource toolbox = builder.Resources.OfType<MessagingToolboxResource>().ShouldHaveSingleItem();
+        toolbox.Annotations.OfType<WaitAnnotation>().ShouldContain(wait => wait.Resource == rabbit.Resource);
+        Dictionary<string, object> environment = await ResolveEnvironmentAsync(toolbox);
+        Value(environment, "ToolboxOptions__Connections__0__Kind").ShouldBe("AzureServiceBus");
+        Value(environment, "ToolboxOptions__Connections__1__Name").ShouldBe("rabbit");
+        Value(environment, "ToolboxOptions__Connections__1__Kind").ShouldBe("RabbitMQ");
+    }
 }

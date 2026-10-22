@@ -362,8 +362,44 @@ emulator, which the provider treats as the session requirement. Purge drains as 
 peeks for the deferred leftovers and deletes them by sequence number with receive-and-delete.
 
 Keeping all emulator quirks in this project
-is what lets Application stay broker-agnostic. A future `Providers.RabbitMQ` implements the same
-contract — that is the abstraction's proof case.
+is what lets Application stay broker-agnostic.
+
+### `Providers.RabbitMQ`
+
+The second provider, and the abstraction's proof case:
+
+```
+Providers.RabbitMQ/
+  RabbitMqProvider.cs                 # IMessagingProvider over RabbitMQ.Client 7 (AMQP 0-9-1), one vhost
+  RabbitMqProviderBuilder.cs          # IMessagingProviderBuilder for ProviderKind.RabbitMQ
+  RabbitMqCapabilities.cs             # no DLQ sub-queue, sequence numbers, sessions, deferral, scheduling
+  RabbitMqConnectionSettings.cs       # AMQP URI + management URL (host-supplied, ;Management=, or :15672)
+  RabbitMqEntityPath.cs               # "queues/{name}" | "exchanges/{name}" (names may collide across kinds)
+  RabbitMqMessageMapper.cs            # AMQP properties/headers <-> ToolboxMessage; broker headers -> BrokerProperties
+  Management/                         # thin HttpClient over the management API (discovery, counts, probe)
+  Errors/RabbitMqExceptionTranslator.cs
+  DependencyInjection.cs
+```
+
+- **Discovery** needs the management HTTP API (AMQP can't list anything). It is probed like the
+  emulator admin endpoint: success is final, a failure is retried after 15 s and explained in
+  `ManagementUnavailableReason`; meanwhile config-listed queues are shown and counted over AMQP.
+  The default exchange and `amq.*` exchanges are hidden.
+- **Counts:** ready messages come from a passive declare (the management statistics refresh only
+  every few seconds, so a count right after a send would lag), plus the unacknowledged count from
+  the management API. Streams use the management count.
+- **Data plane:** one AMQP connection per provider, opened lazily (a starting broker doesn't fail
+  the connection list) and reopened on the next operation after a failure; a channel per
+  operation; peeks, receives and purges on one queue are serialized.
+- **Peek (ADR 18):** classic and quorum queues report `PeekMode.Requeue`: the provider gets
+  messages without auto-ack on its own channel and nacks them all with requeue at the end, never
+  rejects. Streams report `PeekMode.NonDestructive` and are read by a consumer from offset
+  `first`, with the prefetch capping deliveries.
+- **Sequence numbers:** none. Messages carry their 1-based position in the returned batch (stream
+  messages: their offset) as `SequenceNumber`, for display and grid selection only;
+  `SupportsSequenceNumbers` is false, so nothing addresses messages by it.
+- **Send:** queues through the default exchange, exchanges with `ToolboxMessage.RoutingKey`;
+  publisher confirms plus `mandatory`, so an unroutable message is an error, not a silent drop.
 
 ---
 
@@ -429,6 +465,9 @@ Aspire.Hosting/
   MessagingToolboxContainerImageTags.cs # registry/image coordinates; tag = package version
                                         # for v* tag builds, else `edge`
   MessagingToolboxConnectionsAnnotation.cs # per-host next-connection index + attached brokers
+  Brokers/                              # one adapter per broker resource type: provider kind +
+                                        # broker-specific env (ASB: admin endpoint, modeled
+                                        # entities; RabbitMQ: management endpoint)
 ```
 
 - `AddMessagingToolbox("toolbox", messaging)` takes `IResourceBuilder<IResourceWithConnectionString>`,
@@ -459,6 +498,11 @@ Aspire.Hosting/
   `ToolboxOptions__Connections__{i}__AdminEndpoint`. It is an endpoint reference, so it resolves to
   the container-network address for the container and to the mapped host port for a project
   resource (see §6).
+- For a RabbitMQ server (`AddRabbitMQ`), the connection kind is `RabbitMQ` and, when
+  `WithManagementPlugin()` is on, its `management` endpoint is passed as `AdminEndpoint` (a
+  reference again, so it resolves for container and project consumers). Aspire models no queues
+  or exchanges; discovery goes through that API. `rabbitMq.WithMessagingToolbox()` is the
+  one-line form. Plain connection-string resources keep mapping to Azure Service Bus.
 - Dashboard commands ("Open toolbox", "Send test message…", "Purge DLQ…") with Interaction
   Service typed inputs are designed but deferred — nothing is implemented yet. They remain
   documented as local-only (not available on ACA-hosted dashboards).
@@ -661,3 +705,19 @@ Aspire.Hosting/
     their routing and system metadata without more ASB-shaped top-level fields. Rejected: a
     provider-kind switch in the UI (ADR 5), and one capability record per broker (every
     consumer would need to know every broker).
+18. **RabbitMQ browse is a disclosed requeue-peek** — *(applies ADR 17's `PeekMode.Requeue`.)*
+    RabbitMQ has no read-only browse for classic and quorum queues: every tool, the management
+    UI's "Get messages" included, takes messages and puts them back. The provider gets up to the
+    requested count without auto-ack on a channel of its own, then nacks them all with requeue in
+    one call. Never reject: on quorum queues a reject (and a channel closing with unacked
+    messages) counts as a failed delivery toward `delivery-limit` and can dead-letter the message,
+    while a nack-requeue only bumps `x-acquired-count` (RabbitMQ 4.3). Verified against
+    RabbitMQ 4.1: repeated peeks return the same messages in order, leave the count unchanged and
+    don't raise the quorum delivery count. The side effects that remain (redelivered flag, the
+    messages invisible to consumers for the duration, possible reordering with active consumers)
+    are disclosed next to Load, and a requeue-peek runs only on that explicit Load — never from
+    live watch or counting (counts use passive declares and the management API). Peeks of one
+    queue are serialized, since two concurrent ones would each see part of it. Streams are logs,
+    read by offset without side effects. Rejected: no peek at all on queues (dead-letter queues,
+    the main thing to inspect, would need a destructive receive), and a per-connection opt-in
+    (one more switch for behavior every RabbitMQ tool already has).

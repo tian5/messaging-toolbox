@@ -15,6 +15,7 @@ COPY src/MessagingToolbox.Domain/MessagingToolbox.Domain.csproj src/MessagingToo
 COPY src/MessagingToolbox.Application/MessagingToolbox.Application.csproj src/MessagingToolbox.Application/
 COPY src/MessagingToolbox.Infrastructure/MessagingToolbox.Infrastructure.csproj src/MessagingToolbox.Infrastructure/
 COPY src/MessagingToolbox.Providers.AzureServiceBus/MessagingToolbox.Providers.AzureServiceBus.csproj src/MessagingToolbox.Providers.AzureServiceBus/
+COPY src/MessagingToolbox.Providers.RabbitMQ/MessagingToolbox.Providers.RabbitMQ.csproj src/MessagingToolbox.Providers.RabbitMQ/
 COPY src/MessagingToolbox.ServiceDefaults/MessagingToolbox.ServiceDefaults.csproj src/MessagingToolbox.ServiceDefaults/
 COPY src/MessagingToolbox.Web/MessagingToolbox.Web.csproj src/MessagingToolbox.Web/
 RUN dotnet restore src/MessagingToolbox.Web/MessagingToolbox.Web.csproj -a $TARGETARCH

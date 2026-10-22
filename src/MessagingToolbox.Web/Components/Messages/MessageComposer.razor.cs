@@ -68,6 +68,12 @@ public partial class MessageComposer : IAsyncDisposable
     [Parameter]
     public bool RequiresSession { get; set; }
 
+    /// <summary>True when the target routes by key (an exchange); the routing key field is shown then.</summary>
+    [Parameter]
+    public Func<string, bool>? IsRoutingTarget { get; set; }
+
+    private bool ShowRoutingKey => IsRoutingTarget?.Invoke(TargetPath) == true;
+
     /// <summary>The active connection's capabilities; fields the broker can't honor are hidden. Null while unknown.</summary>
     [Parameter]
     public ProviderCapabilities? Capabilities { get; set; }
@@ -136,7 +142,8 @@ public partial class MessageComposer : IAsyncDisposable
             await ToUtcAsync(Draft.ScheduledLocal),
             Draft.TimeToLiveSeconds is > 0 ? TimeSpan.FromSeconds(Draft.TimeToLiveSeconds.Value) : null,
             Math.Max(1, Draft.Copies),
-            Draft.PropertyTypes());
+            Draft.PropertyTypes(),
+            ShowRoutingKey ? EmptyToNull(Draft.RoutingKey) : null);
 
     private RepairAndResubmitMessageCommand BuildRepairCommand(bool removeOriginal)
         => new(

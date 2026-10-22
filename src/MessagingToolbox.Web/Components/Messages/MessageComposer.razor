@@ -21,6 +21,11 @@
     {
         <p class="hint warn">@fanOut</p>
     }
+    @if (ShowRoutingKey)
+    {
+        <label for="composer-routing-key">Routing key</label>
+        <input id="composer-routing-key" @bind="Draft.RoutingKey" placeholder="bound queues whose binding key matches receive the message" />
+    }
 
     <label>Body</label>
     <MonacoEditor @bind-Value="Draft.Body" Language="@EditorLanguage" FallbackClass="composer-body" />

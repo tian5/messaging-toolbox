@@ -887,6 +887,11 @@ public partial class Home : IDisposable
         return null;
     }
 
+    // Exchanges route by key, so the composer asks for one when targeting them.
+    private bool IsRoutingTarget(string targetPath)
+        => EntityTreeFiltering.Flatten(ActiveConnectionWorkspace.Tree ?? [])
+            .Any(node => node.Kind == EntityKind.Exchange && node.Path == targetPath);
+
     private async Task SendCopyOperationAsync(ConnectionWorkspace workspace, MessageDto message)
     {
         try

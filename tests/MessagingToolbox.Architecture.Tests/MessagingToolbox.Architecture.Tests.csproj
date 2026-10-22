@@ -10,6 +10,7 @@
         <ProjectReference Include="..\..\src\MessagingToolbox.Application\MessagingToolbox.Application.csproj" />
         <ProjectReference Include="..\..\src\MessagingToolbox.Infrastructure\MessagingToolbox.Infrastructure.csproj" />
         <ProjectReference Include="..\..\src\MessagingToolbox.Providers.AzureServiceBus\MessagingToolbox.Providers.AzureServiceBus.csproj" />
+        <ProjectReference Include="..\..\src\MessagingToolbox.Providers.RabbitMQ\MessagingToolbox.Providers.RabbitMQ.csproj" />
         <ProjectReference Include="..\..\src\MessagingToolbox.Web\MessagingToolbox.Web.csproj" />
     </ItemGroup>
 

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\MessagingToolbox.Providers.RabbitMQ\MessagingToolbox.Providers.RabbitMQ.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Real AMQP round-trips run against a RabbitMQ container in the CI emulator job. -->
+        <PackageReference Include="Testcontainers.RabbitMq" />
+        <PackageReference Include="NSubstitute" />
+        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+        <PackageReference Update="xunit.runner.visualstudio">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+</Project>

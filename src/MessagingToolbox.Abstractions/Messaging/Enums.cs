@@ -59,11 +59,12 @@ public enum SettlementOperation
 
 /// <summary>
 /// Identifies a broker provider implementation. One value per shipping provider; extended as
-/// RabbitMQ/Kafka/NATS providers land (see the roadmap in the requirements doc).
+/// Kafka/NATS providers land (see the roadmap in the requirements doc). Persisted by name.
 /// </summary>
 public enum ProviderKind
 {
     AzureServiceBus,
+    RabbitMQ,
 }
 
 /// <summary>Lifecycle status of a broker entity.</summary>

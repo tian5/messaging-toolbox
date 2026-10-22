@@ -7,6 +7,7 @@
     <PackageVersion Include="Aspire.Hosting" Version="13.6.2" />
     <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.6.2" />
     <PackageVersion Include="Aspire.Hosting.Azure.ServiceBus" Version="13.6.2" />
+    <PackageVersion Include="Aspire.Hosting.RabbitMQ" Version="13.6.2" />
     <!-- Security pin: Aspire.Hosting 13.6.1 brings MessagePack 2.5.302 (GHSA-qhrr-8q5h-9q3h, fixed
          in 2.5.303). Referenced directly by MessagingToolbox.Aspire.Hosting; drop once Aspire ships
          a patched version. -->
@@ -17,6 +18,8 @@
     <PackageVersion Include="Mediator.SourceGenerator" Version="3.0.2" />
     <!-- Broker SDK — referenced by MessagingToolbox.Providers.AzureServiceBus only -->
     <PackageVersion Include="Azure.Messaging.ServiceBus" Version="7.21.0" />
+    <!-- Broker SDK — referenced by MessagingToolbox.Providers.RabbitMQ only -->
+    <PackageVersion Include="RabbitMQ.Client" Version="7.2.2" />
     <!-- Persistence — referenced by MessagingToolbox.Infrastructure only -->
     <PackageVersion Include="Microsoft.AspNetCore.DataProtection" Version="10.0.13" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
@@ -45,6 +48,7 @@
     <PackageVersion Include="NSubstitute" Version="6.2.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="Testcontainers" Version="4.16.0" />
+    <PackageVersion Include="Testcontainers.RabbitMq" Version="4.16.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
   </ItemGroup>

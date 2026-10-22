@@ -35,6 +35,9 @@ public sealed class ComposerDraft
 
     public DateTime? ScheduledLocal { get; set; }
 
+    /// <summary>Routing key for exchange targets; ignored by brokers that route by entity path.</summary>
+    public string? RoutingKey { get; set; }
+
     public int? TimeToLiveSeconds { get; set; }
 
     public int Copies { get; set; } = 1;
@@ -79,6 +82,7 @@ public sealed class ComposerDraft
         SessionId = message.SessionId;
         To = message.To;
         ReplyTo = message.ReplyTo;
+        RoutingKey = message.RoutingKey;
         Properties.Clear();
         foreach (KeyValuePair<string, object?> property in message.ApplicationProperties)
         {

@@ -119,6 +119,7 @@
                 <MessageComposer @key="ComposerKey()"
                                  Draft="ActiveConnectionWorkspace.RepairDraft ?? ActiveConnectionWorkspace.Draft"
                                  FanOutWarning="FanOutWarning"
+                                 IsRoutingTarget="IsRoutingTarget"
                                  ConnectionId="_selectedConnection!.Id"
                                  EntityPath="@(ActiveConnectionWorkspace.OriginalPath ?? ActiveConnectionWorkspace.SelectedNode?.Path ?? string.Empty)"
                                  Prefill="ActiveConnectionWorkspace.EditMessage"

@@ -5,6 +5,7 @@ using MessagingToolbox.Application.Features.Connections.Queries.GetConnections;
 using MessagingToolbox.Domain.Entities;
 using MessagingToolbox.Infrastructure.Persistence;
 using MessagingToolbox.Providers.AzureServiceBus;
+using MessagingToolbox.Providers.RabbitMQ;
 using MessagingToolbox.Web.Components.Pages;
 using Microsoft.AspNetCore.Components;
 using NetArchTest.Rules;
@@ -28,9 +29,13 @@ public class DependencyRuleTests
     private static readonly Assembly WebAssembly = typeof(Home).Assembly;
 
     // Every broker provider; a new provider adds its assembly and SDK namespaces here.
-    private static readonly Assembly[] ProviderAssemblies = [typeof(AzureServiceBusProvider).Assembly];
+    private static readonly Assembly[] ProviderAssemblies =
+    [
+        typeof(AzureServiceBusProvider).Assembly,
+        typeof(RabbitMqProvider).Assembly,
+    ];
 
-    private static readonly string[] BrokerSdkNamespaces = ["Azure.Messaging.ServiceBus", "Azure.Core"];
+    private static readonly string[] BrokerSdkNamespaces = ["Azure.Messaging.ServiceBus", "Azure.Core", "RabbitMQ.Client"];
 
     private const string ProvidersNamespace = "MessagingToolbox.Providers";
 

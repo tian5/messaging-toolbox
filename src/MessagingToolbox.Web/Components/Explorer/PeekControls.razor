@@ -2,7 +2,10 @@
 <div class="peek-controls">
     <select @bind="Workspace.ViewMode" title="Load mode (FR-3.2)" disabled="@IsScheduledNode">
         <option value="@MessageLoadMode.Peek">Peek</option>
-        <option value="@MessageLoadMode.Settleable">Receive (settle later)</option>
+        @if (Capabilities?.CanReceiveSettle != false)
+        {
+            <option value="@MessageLoadMode.Settleable">Receive (settle later)</option>
+        }
         <option value="@MessageLoadMode.ReceiveAndDelete">Receive &amp; delete</option>
     </select>
     <label title="How many messages to fetch; the provider pages through the broker (max 5000)">Max <InputNumber @bind-Value="Workspace.MaxMessages" min="1" max="5000" /></label>

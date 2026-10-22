@@ -1075,7 +1075,9 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
         ProviderCapabilities updated = current with
         {
             CanManageEntities = unavailableReason is null,
-            ManagementUnavailableReason = unavailableReason is null ? null : $"Entity management is unavailable: {unavailableReason}",
+            ManagementUnavailableReason = unavailableReason is null
+                ? null
+                : $"Entity management is unavailable: {unavailableReason} It needs the emulator admin endpoint (port 5300, emulator 2.0 or later); until it answers, the tree shows the entities modeled in the AppHost.",
         };
         Interlocked.Exchange(ref _capabilities, updated);
 

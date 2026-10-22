@@ -10,9 +10,9 @@ jobs:
   build:
     uses: ./.github/workflows/_build.yml
 
-  # Real round-trips against the Service Bus emulator (Testcontainers; Docker is available on
-  # the Linux runner). A separate job so an emulator or image-pull failure is attributable and
-  # never hides the unit-test signal.
+  # Real round-trips against the Service Bus emulator and a RabbitMQ broker (Testcontainers;
+  # Docker is available on the Linux runner). A separate job so an emulator or image-pull failure
+  # is attributable and never hides the unit-test signal.
   emulator:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -36,10 +36,19 @@ jobs:
           --filter "Category=Emulator"
           --logger "trx;LogFileName=emulator-results.trx"
 
+      - name: RabbitMQ broker tests
+        run: >
+          dotnet test tests/MessagingToolbox.Providers.RabbitMQ.Tests
+          --configuration Release
+          --filter "Category=Emulator"
+          --logger "trx;LogFileName=rabbitmq-results.trx"
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: emulator-test-results
-          path: "**/emulator-results.trx"
+          path: |
+            **/emulator-results.trx
+            **/rabbitmq-results.trx
           retention-days: 7

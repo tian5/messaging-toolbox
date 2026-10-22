@@ -1,27 +1,24 @@
 <Solution>
-  <Configurations>
-    <BuildType Name="Debug" />
-    <BuildType Name="Release" />
-    <Platform Name="Any CPU" />
-  </Configurations>
   <!-- Type="Common C#" declares the SDK-style C# project type (9A19103F-...); without it, readers
        infer the legacy C# type from the .csproj extension and IDEs can misclassify SDK projects. -->
   <Folder Name="/src/">
-    <Project Path="src/MessagingToolbox.Abstractions/MessagingToolbox.Abstractions.csproj" Type="Common C#" />
-    <Project Path="src/MessagingToolbox.Domain/MessagingToolbox.Domain.csproj" Type="Common C#" />
-    <Project Path="src/MessagingToolbox.Application/MessagingToolbox.Application.csproj" Type="Common C#" />
-    <Project Path="src/MessagingToolbox.Infrastructure/MessagingToolbox.Infrastructure.csproj" Type="Common C#" />
-    <Project Path="src/MessagingToolbox.Providers.AzureServiceBus/MessagingToolbox.Providers.AzureServiceBus.csproj" Type="Common C#" />
-    <Project Path="src/MessagingToolbox.ServiceDefaults/MessagingToolbox.ServiceDefaults.csproj" Type="Common C#" />
-    <Project Path="src/MessagingToolbox.Aspire.Hosting/MessagingToolbox.Aspire.Hosting.csproj" Type="Common C#" />
-    <Project Path="src/MessagingToolbox.Web/MessagingToolbox.Web.csproj" Type="Common C#" />
-    <Project Path="src/MessagingToolbox.AppHost/MessagingToolbox.AppHost.csproj" Type="Common C#" />
+    <Project Path="src/MessagingToolbox.Abstractions/MessagingToolbox.Abstractions.csproj" />
+    <Project Path="src/MessagingToolbox.Domain/MessagingToolbox.Domain.csproj" />
+    <Project Path="src/MessagingToolbox.Application/MessagingToolbox.Application.csproj" />
+    <Project Path="src/MessagingToolbox.Infrastructure/MessagingToolbox.Infrastructure.csproj" />
+    <Project Path="src/MessagingToolbox.Providers.AzureServiceBus/MessagingToolbox.Providers.AzureServiceBus.csproj" />
+    <Project Path="src/MessagingToolbox.Providers.RabbitMQ/MessagingToolbox.Providers.RabbitMQ.csproj" />
+    <Project Path="src/MessagingToolbox.ServiceDefaults/MessagingToolbox.ServiceDefaults.csproj" />
+    <Project Path="src/MessagingToolbox.Aspire.Hosting/MessagingToolbox.Aspire.Hosting.csproj" />
+    <Project Path="src/MessagingToolbox.Web/MessagingToolbox.Web.csproj" />
+    <Project Path="src/MessagingToolbox.AppHost/MessagingToolbox.AppHost.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/MessagingToolbox.Domain.Tests/MessagingToolbox.Domain.Tests.csproj" Type="Common C#" />
-    <Project Path="tests/MessagingToolbox.Application.Tests/MessagingToolbox.Application.Tests.csproj" Type="Common C#" />
-    <Project Path="tests/MessagingToolbox.Providers.AzureServiceBus.Tests/MessagingToolbox.Providers.AzureServiceBus.Tests.csproj" Type="Common C#" />
-    <Project Path="tests/MessagingToolbox.Architecture.Tests/MessagingToolbox.Architecture.Tests.csproj" Type="Common C#" />
-    <Project Path="tests/MessagingToolbox.Aspire.Hosting.Tests/MessagingToolbox.Aspire.Hosting.Tests.csproj" Type="Common C#" />
+    <Project Path="tests/MessagingToolbox.Domain.Tests/MessagingToolbox.Domain.Tests.csproj" />
+    <Project Path="tests/MessagingToolbox.Application.Tests/MessagingToolbox.Application.Tests.csproj" />
+    <Project Path="tests/MessagingToolbox.Providers.AzureServiceBus.Tests/MessagingToolbox.Providers.AzureServiceBus.Tests.csproj" />
+    <Project Path="tests/MessagingToolbox.Architecture.Tests/MessagingToolbox.Architecture.Tests.csproj" />
+    <Project Path="tests/MessagingToolbox.Aspire.Hosting.Tests/MessagingToolbox.Aspire.Hosting.Tests.csproj" />
+    <Project Path="tests/MessagingToolbox.Providers.RabbitMQ.Tests/MessagingToolbox.Providers.RabbitMQ.Tests.csproj" />
   </Folder>
 </Solution>

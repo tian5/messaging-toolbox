@@ -5,7 +5,7 @@ namespace MessagingToolbox.Application.Features.Messages.Commands.SendMessage;
 
 /// <summary>Sends one or more copies of a composed message; body and application properties go
 /// through placeholder templating per copy. <paramref name="PropertyTypes"/> types the property
-/// values (text when absent).</summary>
+/// values (text when absent). <paramref name="RoutingKey"/> is used when publishing to an exchange.</summary>
 public sealed record SendMessageCommand(
     Guid ConnectionId,
     string EntityPath,
@@ -21,4 +21,5 @@ public sealed record SendMessageCommand(
     DateTimeOffset? ScheduledEnqueueTime,
     TimeSpan? TimeToLive,
     int Copies,
-    IReadOnlyDictionary<string, PropertyValueType>? PropertyTypes = null) : IRequest;
+    IReadOnlyDictionary<string, PropertyValueType>? PropertyTypes = null,
+    string? RoutingKey = null) : IRequest;

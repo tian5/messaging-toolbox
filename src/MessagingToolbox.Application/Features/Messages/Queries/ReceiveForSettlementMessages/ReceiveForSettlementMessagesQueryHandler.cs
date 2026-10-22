@@ -23,6 +23,11 @@ public sealed class ReceiveForSettlementMessagesQueryHandler : IRequestHandler<R
     {
         IMessagingProvider provider = await _providerFactory.GetProviderAsync(request.ConnectionId, cancellationToken);
 
+        if (!provider.Capabilities.CanReceiveSettle)
+        {
+            throw new NotSupportedByProviderException("This connection does not support receiving messages for settlement.");
+        }
+
         if (request.SessionId is not null && !provider.Capabilities.SupportsSessions)
         {
             throw new NotSupportedByProviderException("This connection does not support sessions.");

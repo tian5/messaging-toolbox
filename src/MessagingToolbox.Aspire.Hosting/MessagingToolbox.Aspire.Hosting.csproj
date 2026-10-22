@@ -5,8 +5,8 @@
         <IsPackable>true</IsPackable>
         <PackageId>MessagingToolbox.Aspire.Hosting</PackageId>
         <Title>MessagingToolbox: message broker explorer for .NET Aspire</Title>
-        <Description>Message broker explorer for local development with .NET Aspire. Browse, send and manage messages from your AppHost, starting with the Azure Service Bus emulator.</Description>
-        <PackageTags>aspire;dotnet-aspire;aspire-hosting;azure-service-bus;servicebus;azure-service-bus-emulator;service-bus-emulator;servicebus-emulator;service-bus-explorer;servicebus-explorer;emulator;message-broker;broker-explorer;queue-explorer;message-explorer;dead-letter;queues;topics;messaging;local-development;devtools;blazor</PackageTags>
+        <Description>Message broker explorer for local development with .NET Aspire. Browse, send and manage messages from your AppHost: the Azure Service Bus emulator and RabbitMQ.</Description>
+        <PackageTags>aspire;dotnet-aspire;aspire-hosting;azure-service-bus;servicebus;azure-service-bus-emulator;service-bus-emulator;servicebus-emulator;service-bus-explorer;servicebus-explorer;rabbitmq;rabbitmq-management;amqp;emulator;message-broker;broker-explorer;queue-explorer;message-explorer;dead-letter;queues;topics;messaging;local-development;devtools;blazor</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
 
@@ -18,6 +18,8 @@
         <PackageReference Include="Aspire.Hosting" />
         <!-- Reads the AppHost-modeled queues/topics/subscriptions for emulator discovery (architecture doc §8). -->
         <PackageReference Include="Aspire.Hosting.Azure.ServiceBus" />
+        <!-- Recognizes RabbitMQ server resources and their management endpoint. -->
+        <PackageReference Include="Aspire.Hosting.RabbitMQ" />
         <!-- Lifts Aspire's vulnerable transitive MessagePack to a patched version, for consumers too. -->
         <PackageReference Include="MessagePack" />
     </ItemGroup>
