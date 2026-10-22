@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
@@ -102,10 +103,42 @@ public sealed class RabbitMqManagementClient : IRabbitMqManagementClient
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<RabbitMqShovelStatus>> ListShovelsAsync(CancellationToken cancellationToken)
+        => await GetAsync<List<RabbitMqShovelStatus>>($"api/shovels/{_virtualHost}", cancellationToken);
+
+    public async Task DeclareShovelAsync(string name, RabbitMqShovelDefinition definition, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _httpClient.PutAsJsonAsync(ShovelUrl(name), new { value = definition }, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
+    public async Task<bool> ShovelExistsAsync(string name, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _httpClient.GetAsync(ShovelUrl(name), cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        await EnsureSuccessAsync(response, cancellationToken);
+        return true;
+    }
+
+    public async Task DeleteShovelAsync(string name, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _httpClient.DeleteAsync(ShovelUrl(name), cancellationToken);
+        if (response.StatusCode != HttpStatusCode.NotFound)
+        {
+            await EnsureSuccessAsync(response, cancellationToken);
+        }
+    }
+
     public void Dispose() => _httpClient.Dispose();
 
     private string BindingsUrl(string source, string destination, bool destinationIsQueue)
         => $"api/bindings/{_virtualHost}/e/{Uri.EscapeDataString(source)}/{(destinationIsQueue ? "q" : "e")}/{Uri.EscapeDataString(destination)}";
+
+    private string ShovelUrl(string name) => $"api/parameters/shovel/{_virtualHost}/{Uri.EscapeDataString(name)}";
 
     private string QueueUrl(string name) => $"api/queues/{_virtualHost}/{Uri.EscapeDataString(name)}";
 

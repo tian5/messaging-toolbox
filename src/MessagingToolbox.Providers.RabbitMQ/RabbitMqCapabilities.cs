@@ -16,6 +16,7 @@ public static class RabbitMqCapabilities
     {
         CanManageEntities = false,
         CanManageRules = false,
+        CanMoveMessages = false,
         CanPeek = true,
         CanReceiveSettle = true,
         SupportsSessions = false,

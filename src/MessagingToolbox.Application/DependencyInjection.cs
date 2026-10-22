@@ -9,6 +9,7 @@ using MessagingToolbox.Application.Features.Management.Commands.DeleteRoutingRul
 using MessagingToolbox.Application.Features.Messages.Commands.DeadLetterMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.DeleteMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.RepairAndResubmitMessage;
+using MessagingToolbox.Application.Features.Messages.Commands.MoveMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.RequeueMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.SendMessage;
 using MessagingToolbox.Application.Features.Messages.Commands.SettleBySequence;
@@ -48,6 +49,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<DeadLetterMessagesCommand>, DeadLetterMessagesCommandValidator>();
         services.AddScoped<IValidator<DeleteMessagesCommand>, DeleteMessagesCommandValidator>();
         services.AddScoped<IValidator<RequeueMessagesCommand>, RequeueMessagesCommandValidator>();
+        services.AddScoped<IValidator<MoveMessagesCommand>, MoveMessagesCommandValidator>();
         services.AddScoped<IValidator<SettleMessagesCommand>, SettleMessagesCommandValidator>();
         services.AddScoped<IValidator<SettleBySequenceCommand>, SettleBySequenceCommandValidator>();
         services.AddScoped<IValidator<ReceiveDeferredMessagesQuery>, ReceiveDeferredMessagesQueryValidator>();

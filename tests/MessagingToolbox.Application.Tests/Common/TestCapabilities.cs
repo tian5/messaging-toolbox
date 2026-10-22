@@ -10,6 +10,7 @@ internal static class TestCapabilities
     {
         CanManageEntities = true,
         CanManageRules = true,
+        CanMoveMessages = true,
         CanPeek = true,
         CanReceiveSettle = true,
         SupportsSessions = true,
@@ -28,6 +29,7 @@ internal static class TestCapabilities
     {
         CanManageEntities = false,
         CanManageRules = false,
+        CanMoveMessages = false,
         SupportsTransactions = false,
     };
 }

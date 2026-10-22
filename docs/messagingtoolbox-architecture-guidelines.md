@@ -125,6 +125,7 @@ public sealed record ProviderCapabilities   // required init properties (ADR 17)
 {
     bool CanManageEntities;            // create/update/delete queues, topics, subscriptions, exchanges
     bool CanManageRules;               // routing rules: subscription filters/actions, exchange bindings
+    bool CanMoveMessages;              // broker-side move of a queue's messages (RabbitMQ shovel, ADR 23)
     bool CanPeek;                      // inspection without consuming; cost per entity: MessagingEntity.PeekMode
     bool CanReceiveSettle;             // settleable receive + complete/abandon (+ dead-letter/defer where supported)
     bool SupportsSessions;
@@ -177,6 +178,7 @@ public interface IMessagingProvider : IAsyncDisposable   // Abstractions
     Task<IReadOnlyList<long>> SettleBySequenceNumbersAsync(SettleBySequenceRequest request,
         CancellationToken ct);                                 // DLQ sub-queues only (ADR 10); returns settled sequences
     Task<long> PurgeAsync(string entityPath, MessageSubQueue subQueue, CancellationToken ct);  // returns deleted count; drains every available session, then deferred messages
+    Task<long> MoveMessagesAsync(string sourcePath, string destinationPath, CancellationToken ct);  // broker-side move of every ready message (ADR 23)
     Task<IReadOnlyList<long>> CancelScheduledAsync(string entityPath, IReadOnlyList<long> sequenceNumbers, CancellationToken ct);
     Task<MessagingEntity> CreateOrUpdateEntityAsync(EntityDefinition definition, CancellationToken ct);
     Task DeleteEntityAsync(string entityPath, CancellationToken ct);
@@ -249,7 +251,7 @@ Connections/    GetConnections, SaveConnection, DeleteConnection, TestConnection
 Explorer/       GetEntityTree, GetEntityRuntimeInfo, RefreshCounts
 Messages/       PeekMessages, ReceiveMessages, ReceiveForSettlementMessages, GetHeldLockStates,
                 SendMessage, ResendMessage, RepairAndResubmitMessage, RequeueMessages,
-                SettleMessages, SettleBySequence, PurgeEntity, GetPurgePreview,
+                SettleMessages, SettleBySequence, PurgeEntity, GetPurgePreview, MoveMessages,
                 DeleteMessages, DeadLetterMessages, ExportMessages, ImportMessages
 Templates/      GetCannedMessages, SaveCannedMessage, DeleteCannedMessage, RenderTemplate
 Audit/          GetAuditEntries
@@ -381,7 +383,7 @@ Providers.RabbitMQ/
   RabbitMqConnectionSettings.cs       # AMQP URI + management URL (host-supplied, ;Management=, or :15672)
   RabbitMqEntityPath.cs               # "queues/{name}" | "exchanges/{name}" (names may collide across kinds)
   RabbitMqMessageMapper.cs            # AMQP properties/headers <-> ToolboxMessage; broker headers -> BrokerProperties
-  Management/                         # thin HttpClient over the management API (discovery, counts, probe)
+  Management/                         # thin HttpClient over the management API (discovery, counts, probe, shovels)
   Errors/RabbitMqExceptionTranslator.cs
   DependencyInjection.cs
 ```
@@ -426,6 +428,12 @@ Providers.RabbitMQ/
   created and deleted through the management API, identified by its properties key; the default
   exchange's implicit binding to every queue is left out, since it can't be changed. Shown in a
   bindings panel in the entity details, both directions.
+- **Move (ADR 23):** "Move all…" moves every ready message of a queue to another queue through a
+  dynamic shovel (`src-delete-after: queue-length`, `ack-mode: on-confirm`, both queues
+  predeclared, so it never declares one). `CanMoveMessages` needs the management API and the
+  shovel management plugin, probed through `/api/shovels/{vhost}`; the playground and the broker
+  tests enable it. The provider waits up to 30 s for the shovel to delete itself, fails fast when
+  the broker reports it terminated, and otherwise stops it; it never leaves a shovel behind.
 - **Send:** queues through the default exchange, exchanges with `ToolboxMessage.RoutingKey`;
   publisher confirms plus `mandatory`, so an unroutable message is an error, not a silent drop.
 
@@ -829,3 +837,21 @@ Aspire.Hosting/
     describes no rule type and its cloud profile no longer claims `CanManageRules`. The unused
     `SubscriptionRuleInfo` is removed. Rejected: showing bindings only as entity properties (read
     only, and hidden behind the properties toggle), and a per-broker bindings component.
+23. **Moving all messages is a broker-side operation behind `CanMoveMessages`** — Emptying a
+    RabbitMQ dead-letter queue back into its source (or anywhere else) through the toolbox would
+    take every message out and send it again: slow, and a crash in between loses or duplicates
+    messages. The broker can do it itself with a dynamic shovel, which is how its own management UI
+    moves messages. `IMessagingProvider.MoveMessagesAsync(source, destination)` moves every ready
+    message and returns how many; the new `CanMoveMessages` capability gates it, and
+    `EntityOperations.CanMoveMessages` narrows it per entity (streams can't be emptied). RabbitMQ
+    creates a shovel that takes the queue length at start, acks each message once the destination
+    confirmed it, and deletes itself; both queues are predeclared, so a move never declares (or
+    re-declares with other arguments) a queue, and a missing destination is refused before the
+    shovel starts. The provider polls until the shovel is gone, fails with the broker's reason when
+    the shovel terminates, and stops it after 30 s or on cancellation, keeping what moved so far
+    (at-least-once: a message in flight when stopped may arrive twice). The capability is probed
+    through the shovel management API, because a node's plugin list only appears once the
+    statistics collector has run. Moves are confirmed with the source's count and audited.
+    Service Bus has no broker-side move; its copies go through requeue (clone, then remove).
+    Rejected: client-side receive-and-send (not atomic per message, and slow), and treating the
+    shovel plugin as always present (a broker without it would fail only on use).

@@ -95,6 +95,14 @@ public interface IMessagingProvider : IAsyncDisposable
     Task<long> PurgeAsync(string entityPath, MessageSubQueue subQueue, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Moves every ready message of the source entity to the destination inside the broker, without
+    /// passing them through the toolbox; returns the number of messages moved. Needs
+    /// <see cref="ProviderCapabilities.CanMoveMessages"/>. Messages held unsettled stay in the source.
+    /// A move that doesn't finish in time is stopped: what moved so far stays moved.
+    /// </summary>
+    Task<long> MoveMessagesAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Cancels scheduled messages by sequence number — the only way to remove a message that is not
     /// yet enqueued; returns the sequence numbers actually cancelled.
     /// </summary>

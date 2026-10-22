@@ -15,6 +15,11 @@
     {
         <button type="button" class="danger" @onclick="Purge" disabled="@EntityBusy" title="Purge this sub-queue (FR-5.2)">Purge…</button>
     }
+    @if (!IsScheduledNode && CanMove)
+    {
+        <button type="button" @onclick="Move" disabled="@EntityBusy"
+                title="Move every message to another queue inside the broker (FR-9.8)">Move all…</button>
+    }
     @if (DeferredSelectedCount > 0)
     {
         <button type="button" @onclick="ReceiveDeferred" disabled="@EntityBusy"
@@ -47,6 +52,10 @@
     /// <summary>The entity can be purged (a stream, for one, can't).</summary>
     [Parameter]
     public bool CanPurge { get; set; } = true;
+
+    /// <summary>Every message can be moved to another entity inside the broker.</summary>
+    [Parameter]
+    public bool CanMove { get; set; }
 
     /// <summary>The entity's messages can be removed one by one (a stream's can't).</summary>
     [Parameter]
@@ -81,6 +90,9 @@
 
     [Parameter]
     public EventCallback Purge { get; set; }
+
+    [Parameter]
+    public EventCallback Move { get; set; }
 
     [Parameter]
     public EventCallback ReceiveDeferred { get; set; }

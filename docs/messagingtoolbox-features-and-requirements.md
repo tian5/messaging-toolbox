@@ -271,8 +271,10 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 - FR-9.7 Bindings: a panel in the entity details lists the bindings from and to the selected
   queue or exchange (routing key, match arguments) and creates or deletes them, confirmed and
   audited (ADR 22). *(Done, Phase 4c.)*
-- FR-9.8 Move messages with a dynamic shovel; stream offsets and live watch on streams.
-  *(Phase 4c.)*
+- FR-9.8 Move every message of a queue to another queue inside the broker ("Move all…"), with
+  the source's count in the confirmation, audited, through a dynamic shovel; offered when the
+  shovel management plugin is enabled (ADR 23). *(Done, Phase 4c.)*
+- FR-9.9 Stream offsets and timestamps for peek, and live watch on streams. *(Phase 4c.)*
 
 ### FR-8 Developer-experience extras (post-MVP)
 - Load/burst sender (rate, count, template-driven) for testing consumers.

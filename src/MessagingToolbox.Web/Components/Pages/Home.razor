@@ -59,6 +59,7 @@
                 <MessageActionsBar Workspace="ActiveConnectionWorkspace"
                                    IsScheduledNode="IsScheduledNode"
                                    CanPurge="SelectedOperations.CanPurge"
+                                   CanMove="CanMoveAll"
                                    CanDelete="@(SelectedOperations.CanReceive || SelectedOperations.CanReceiveSettle)"
                                    CanDeadLetterSelection="CanDeadLetterSelection"
                                    CanResubmit="CanResubmit"
@@ -70,6 +71,7 @@
                                    DeferredSelectedCount="ActiveConnectionWorkspace.SelectedDeferredMessages.Count"
                                    ReceiveDeferred="ReceiveDeferredSelected"
                                    Purge="PurgeAsync"
+                                   Move="OpenMove"
                                    DeadLetter="DeadLetterSelected"
                                    Requeue="OpenRequeue"
                                    Delete="DeleteSelected" />
@@ -92,6 +94,23 @@
                         </label>
                         <button type="button" @onclick="ConfirmRequeue" disabled="@(string.IsNullOrWhiteSpace(_requeueTarget) || ActiveConnectionWorkspace.Selection.Count == 0 || IsSelectedEntityBusy)">Send (@ActiveConnectionWorkspace.Selection.Count)</button>
                         <button type="button" @onclick="CloseRequeue">Cancel</button>
+                    </div>
+                }
+
+                @if (CanMoveAll && _movePanelVisible)
+                {
+                    <div class="requeue-panel">
+                        <label>
+                            Move every message to
+                            <select @bind="_moveTarget">
+                                @foreach (EntityTreeNodeDto target in MoveTargets)
+                                {
+                                    <option value="@target.Path">@target.Name</option>
+                                }
+                            </select>
+                        </label>
+                        <button type="button" @onclick="ConfirmMoveAsync" disabled="@(string.IsNullOrWhiteSpace(_moveTarget) || IsSelectedEntityBusy)">Move…</button>
+                        <button type="button" @onclick="() => _movePanelVisible = false">Cancel</button>
                     </div>
                 }
 

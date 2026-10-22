@@ -12,6 +12,12 @@ public sealed record ProviderCapabilities
     /// <summary>Create and delete routing rules (<see cref="IMessagingProvider.GetRoutingRuleType"/>): RabbitMQ bindings today.</summary>
     public required bool CanManageRules { get; init; }
 
+    /// <summary>
+    /// Move every message of a queue to another one inside the broker
+    /// (<see cref="IMessagingProvider.MoveMessagesAsync"/>): RabbitMQ with the shovel plugin.
+    /// </summary>
+    public required bool CanMoveMessages { get; init; }
+
     /// <summary>Message inspection without consuming; see <see cref="MessagingEntity.PeekMode"/> for its side effects.</summary>
     public required bool CanPeek { get; init; }
 

@@ -65,6 +65,7 @@ public class RabbitMqProviderTests
             operations => operations.CanReceive.ShouldBeFalse(),
             operations => operations.CanReceiveSettle.ShouldBeFalse(),
             operations => operations.CanPurge.ShouldBeFalse(),
+            operations => operations.CanMoveMessages.ShouldBeFalse(),
             operations => operations.Reason.ShouldNotBeNull());
     }
 
@@ -122,6 +123,7 @@ public class RabbitMqProviderTests
         capabilities.SupportsSequenceNumbers.ShouldBeFalse();
         capabilities.SupportsDeferral.ShouldBeFalse();
         capabilities.SupportsScheduling.ShouldBeFalse();
+        capabilities.CanMoveMessages.ShouldBeFalse();
     }
 
     [Fact]
@@ -231,6 +233,59 @@ public class RabbitMqProviderTests
 
 
         sut.Capabilities.CanManageEntities.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ProbeCapabilitiesAsync_ShovelApiAnswers_EnablesMovingMessages()
+    {
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        await sut.ProbeCapabilitiesAsync(CancellationToken.None);
+
+
+        sut.Capabilities.CanMoveMessages.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ProbeCapabilitiesAsync_ShovelPluginMissing_KeepsManagementButNotMoving()
+    {
+        _management.ListShovelsAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Unknown endpoint", null, System.Net.HttpStatusCode.BadRequest));
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        await sut.ProbeCapabilitiesAsync(CancellationToken.None);
+
+
+        sut.Capabilities.CanManageEntities.ShouldBeTrue();
+        sut.Capabilities.CanMoveMessages.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task MoveMessagesAsync_ShovelPluginDisabled_ThrowsNotSupportedNamingThePlugin()
+    {
+        _management.ListShovelsAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Unknown endpoint", null, System.Net.HttpStatusCode.BadRequest));
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        NotSupportedByProviderException exception = await Should.ThrowAsync<NotSupportedByProviderException>(
+            () => sut.MoveMessagesAsync("queues/orders.dlq", "queues/orders", CancellationToken.None));
+
+
+        exception.Message.ShouldContain("rabbitmq_shovel_management");
+        await _management.DidNotReceiveWithAnyArgs().DeclareShovelAsync(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task MoveMessagesAsync_ToExchange_ThrowsNotSupported()
+    {
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(
+            () => sut.MoveMessagesAsync("queues/orders.dlq", "exchanges/events", CancellationToken.None));
     }
 
     [Fact]

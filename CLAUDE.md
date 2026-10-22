@@ -30,6 +30,7 @@ win. Then fix the docs.
    `MessagingEntity.Operations` instead of switching on `Kind` or `TypeName` in Web (ADR 20).
    New entity settings go into the provider's entity-type schema (`*EntityTypes`), never into
    `EntityEditor.razor` (ADR 21); routing rules likewise come from `GetRoutingRuleType()` (ADR 22).
+   Broker-side moves are gated by `CanMoveMessages` (ADR 23).
 3. **Provider.** Implement it in `Providers.AzureServiceBus`. Translate every SDK exception
    through `ServiceBusExceptionTranslator`. Emulator quirks stay in this project, under
    `Emulator/`.

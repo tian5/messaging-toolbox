@@ -6,6 +6,7 @@ using MessagingToolbox.Application.Features.Explorer.Queries.GetEntityTree;
 using MessagingToolbox.Application.Features.Messages.Commands.DeadLetterMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.DeleteMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.ImportMessages;
+using MessagingToolbox.Application.Features.Messages.Commands.MoveMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.PurgeEntity;
 using MessagingToolbox.Application.Features.Messages.Commands.RequeueMessages;
 using MessagingToolbox.Application.Features.Messages.Commands.ResendMessage;
@@ -70,6 +71,10 @@ public partial class Home : IDisposable
     private bool _requeuePanelVisible;
     private string? _requeueTarget;
     private bool _requeueRemoveOriginals;
+
+    // Move picker state: the destination is another queue from the tree.
+    private bool _movePanelVisible;
+    private string? _moveTarget;
 
     // State for the active connection; the shared sentinel keeps markup null-safe when no
     // connection is selected (those markup sections only render binds when one is).
@@ -136,6 +141,17 @@ public partial class Home : IDisposable
     private IReadOnlyList<EntityTreeNodeDto> RequeueTargets => ActiveConnectionWorkspace.Tree is { } tree
         ? EntityTreeFiltering.Flatten(tree)
             .Where(node => !node.IsSubQueueNode && node.Kind is EntityKind.Queue or EntityKind.Topic or EntityKind.Exchange)
+            .ToList()
+        : [];
+
+    // A broker-side move of everything in the entity (RabbitMQ shovel), where the entity allows it (ADR 23).
+    private bool CanMoveAll => Capabilities?.CanMoveMessages == true
+        && SelectedOperations.CanMoveMessages
+        && ActiveConnectionWorkspace.SelectedNode is { Kind: EntityKind.Queue, SubQueue: MessageSubQueue.Active };
+
+    private IReadOnlyList<EntityTreeNodeDto> MoveTargets => ActiveConnectionWorkspace.Tree is { } tree
+        ? EntityTreeFiltering.Flatten(tree)
+            .Where(node => !node.IsSubQueueNode && node.Kind == EntityKind.Queue && node.Path != ActiveConnectionWorkspace.SelectedNode?.Path)
             .ToList()
         : [];
 
@@ -425,6 +441,9 @@ public partial class Home : IDisposable
         workspace.ViewMode = AllowedViewMode(workspace.ViewMode, node.Operations);
         workspace.ClearRepairState();
         workspace.RestoreForSelectedNode();
+
+        // The move picker belongs to the entity it was opened on.
+        _movePanelVisible = false;
     }
 
     // The load mode is per connection, so a mode the newly selected entity refuses falls back to peek.
@@ -704,6 +723,68 @@ public partial class Home : IDisposable
         {
             workspace.PeekError = exception.Message;
             Notifications.Complete(notification, $"Purging {target} failed: {exception.Message}");
+        }
+    }
+
+    private void OpenMove()
+    {
+        _moveTarget = MoveTargets.FirstOrDefault(target => target.Path == _moveTarget)?.Path ?? MoveTargets.FirstOrDefault()?.Path;
+        _movePanelVisible = true;
+    }
+
+    private async Task ConfirmMoveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_moveTarget) || ActiveConnectionWorkspace.SelectedNode is not { } node)
+        {
+            return;
+        }
+
+        long? count;
+        try
+        {
+            count = await Mediator.Send(
+                new GetPurgePreviewQuery(ActiveConnectionWorkspace.ConnectionId, node.Path, node.SubQueue),
+                _disposalTokenSource.Token);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Informational only, like the purge preview.
+            Logger.LogWarning(exception, "Move preview of {Path} failed", node.Path);
+            count = null;
+        }
+
+        string target = _moveTarget;
+        string countText = count?.ToString("N0") ?? "every";
+        _movePanelVisible = false;
+        ShowConfirm(
+            $"Move messages from {node.Path}",
+            $"Move {countText} message(s) from {node.Path} to {target}? The broker moves them itself and removes each one from {node.Path} once {target} has it. Messages held unsettled stay where they are.",
+            () => MoveCoreAsync(target));
+    }
+
+    private Task MoveCoreAsync(string target)
+    {
+        ConnectionWorkspace workspace = ActiveConnectionWorkspace;
+        return RunEntityOperationAsync(workspace, () => MoveOperationAsync(workspace, target));
+    }
+
+    private async Task MoveOperationAsync(ConnectionWorkspace workspace, string target)
+    {
+        EntityTreeNodeDto node = workspace.SelectedNode!;
+        Notification notification = Notify($"Moving messages from {node.Path} to {target}…", pending: true);
+
+        try
+        {
+            long moved = await Mediator.Send(new MoveMessagesCommand(workspace.ConnectionId, node.Path, target), _disposalTokenSource.Token);
+
+            Notifications.Complete(notification, $"Moved {moved} message(s) from {node.Path} to {target}.");
+            LiveWatches.MarkSent(workspace.ConnectionId);
+            await RefreshAfterMutationAsync(workspace, node, _ => true);
+        }
+        catch (Exception exception)
+        {
+            workspace.PeekError = exception.Message;
+            Notifications.Complete(notification, $"Moving messages from {node.Path} to {target} failed: {exception.Message}");
         }
     }
 

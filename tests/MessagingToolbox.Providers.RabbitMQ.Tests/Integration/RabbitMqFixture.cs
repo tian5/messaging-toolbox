@@ -1,3 +1,4 @@
+using System.Text;
 using MessagingToolbox.Providers.RabbitMQ.Management;
 using Microsoft.Extensions.Logging.Abstractions;
 using RabbitMQ.Client;
@@ -15,6 +16,7 @@ public sealed class RabbitMqFixture : IAsyncLifetime
 {
     private const string Image = "rabbitmq:4.1-management";
     private const int ManagementPort = 15672;
+    private const string EnabledPlugins = "[rabbitmq_management,rabbitmq_prometheus,rabbitmq_shovel,rabbitmq_shovel_management].";
 
     private RabbitMqContainer? _container;
 
@@ -29,8 +31,10 @@ public sealed class RabbitMqFixture : IAsyncLifetime
             return;
         }
 
+        // The image enables management and prometheus; moves need the shovel plugins as well.
         _container = new RabbitMqBuilder(Image)
             .WithPortBinding(ManagementPort, assignRandomHostPort: true)
+            .WithResourceMapping(Encoding.UTF8.GetBytes(EnabledPlugins), "/etc/rabbitmq/enabled_plugins")
             .Build();
         await _container.StartAsync();
 

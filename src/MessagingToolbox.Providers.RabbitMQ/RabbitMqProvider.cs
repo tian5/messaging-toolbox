@@ -36,7 +36,15 @@ public sealed class RabbitMqProvider : IMessagingProvider
     // A stream peek ends at the requested count or once no message arrived for this long.
     private static readonly TimeSpan StreamIdleTimeout = TimeSpan.FromSeconds(1);
 
+    // A move waits this long for its shovel to finish, checking every poll interval, then stops it.
+    internal static readonly TimeSpan MoveTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan MovePollInterval = TimeSpan.FromMilliseconds(200);
+
+    // Brings the shovel plugin along, and its API tells whether moves are possible.
+    private const string ShovelPlugin = "rabbitmq_shovel_management";
+
     private readonly ConnectionFactory _connectionFactory;
+    private readonly string _virtualHost;
     private readonly IRabbitMqManagementClient _management;
     private readonly IReadOnlyList<string> _configuredQueues;
     private readonly ILogger<RabbitMqProvider> _logger;
@@ -53,7 +61,8 @@ public sealed class RabbitMqProvider : IMessagingProvider
         CanReceive = false,
         CanReceiveSettle = false,
         CanPurge = false,
-        Reason = "Streams are append-only logs: messages can't be received, settled or purged — peek reads them without side effects.",
+        CanMoveMessages = false,
+        Reason = "Streams are append-only logs: messages can't be received, settled, purged or moved — peek reads them without side effects.",
     };
 
     private readonly ConcurrentDictionary<string, bool> _streamQueues = new(StringComparer.Ordinal);
@@ -63,6 +72,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
     private readonly Lock _probeLock = new();
     private ProviderCapabilities _capabilities = RabbitMqCapabilities.Default;
     private bool _managementAvailable;
+    private bool _shovelEnabled;
     private Task? _probeTask;
     private DateTimeOffset _lastProbeCompletedAt;
     private IConnection? _connection;
@@ -85,6 +95,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
             AutomaticRecoveryEnabled = false,
             TopologyRecoveryEnabled = false,
         };
+        _virtualHost = settings.VirtualHost;
         _management = management;
         _configuredQueues = configuredQueues;
         _logger = logger;
@@ -240,6 +251,71 @@ public sealed class RabbitMqProvider : IMessagingProvider
             // Purge removes ready messages only; messages a consumer holds unacknowledged stay.
             await using IChannel channel = await CreateChannelAsync(null, cancellationToken);
             return (long)await channel.QueuePurgeAsync(queue, cancellationToken);
+        }, cancellationToken);
+    }
+
+    public async Task<long> MoveMessagesAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken)
+    {
+        using Activity? activity = Telemetry.Source.StartActivity("rabbitmq.messages.move");
+
+        string source = RequireActiveQueue(sourcePath, MessageSubQueue.Active);
+        (EntityKind destinationKind, string destination) = RabbitMqEntityPath.Parse(destinationPath);
+        if (destinationKind != EntityKind.Queue)
+        {
+            throw new NotSupportedByProviderException("Messages can only be moved to a queue.");
+        }
+
+        await RequireManagementAsync(cancellationToken);
+        if (!_shovelEnabled)
+        {
+            throw new NotSupportedByProviderException($"Moving messages needs the RabbitMQ shovel plugin ({ShovelPlugin}).");
+        }
+
+        return await OnQueueAsync(source, sourcePath, async () =>
+        {
+            await RequireNonStreamAsync(source, "moved", cancellationToken);
+
+            // The shovel doesn't declare queues, so a missing destination would make it retry forever.
+            await RequireQueueAsync(destination, destinationPath, cancellationToken);
+
+            long ready = (await CountReadyMessagesAsync(source, cancellationToken)).ActiveMessageCount;
+            if (ready == 0)
+            {
+                return 0;
+            }
+
+            // The broker moves the messages itself: a shovel that takes what the source holds now,
+            // acks each one once the destination confirmed it, and then deletes itself.
+            string shovel = $"messagingtoolbox-move-{Guid.NewGuid():N}";
+            await _management.DeclareShovelAsync(shovel, RabbitMqShovelDefinition.Move(_virtualHost, source, destination), cancellationToken);
+
+            bool finished = false;
+            try
+            {
+                finished = await WaitForShovelAsync(shovel, cancellationToken);
+            }
+            finally
+            {
+                if (!finished)
+                {
+                    // Never leave a shovel behind (timeout, cancellation, error): what moved stays moved.
+                    await StopShovelAsync(shovel);
+                }
+            }
+
+            if (finished)
+            {
+                return ready;
+            }
+
+            long remaining = (await CountReadyMessagesAsync(source, cancellationToken)).ActiveMessageCount;
+            _logger.LogWarning(
+                "Moving messages from RabbitMQ queue {Source} to {Destination} didn't finish within {Timeout}; stopped with {Remaining} left.",
+                source,
+                destination,
+                MoveTimeout,
+                remaining);
+            return Math.Max(0, ready - remaining);
         }, cancellationToken);
     }
 
@@ -856,6 +932,55 @@ public sealed class RabbitMqProvider : IMessagingProvider
         }
     }
 
+    private async Task RequireQueueAsync(string queue, string entityPath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _management.GetQueueAsync(queue, cancellationToken);
+        }
+        catch (Exception exception) when (RabbitMqExceptionTranslator.CanTranslate(exception))
+        {
+            throw RabbitMqExceptionTranslator.Translate(exception, entityPath);
+        }
+    }
+
+    private async Task StopShovelAsync(string shovel)
+    {
+        try
+        {
+            await _management.DeleteShovelAsync(shovel, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogWarning(exception, "Stopping RabbitMQ shovel {Shovel} failed; delete it in the management UI.", shovel);
+        }
+    }
+
+    // True once the shovel deleted itself (done); false on timeout. A shovel that can't run (e.g.
+    // the destination was deleted meanwhile) restarts forever, so its failure ends the wait.
+    private async Task<bool> WaitForShovelAsync(string shovel, CancellationToken cancellationToken)
+    {
+        DateTimeOffset deadline = _timeProvider.GetUtcNow() + MoveTimeout;
+        while (await _management.ShovelExistsAsync(shovel, cancellationToken))
+        {
+            IReadOnlyList<RabbitMqShovelStatus> statuses = await _management.ListShovelsAsync(cancellationToken);
+            if (statuses.FirstOrDefault(status => status.Name == shovel) is { IsTerminated: true } failed)
+            {
+                throw new MessagingProviderException(
+                    $"The broker stopped moving the messages ({failed.Reason?.Trim('"') ?? "no reason given"}); messages moved so far stay moved.");
+            }
+
+            if (_timeProvider.GetUtcNow() >= deadline)
+            {
+                return false;
+            }
+
+            await Task.Delay(MovePollInterval, _timeProvider, cancellationToken);
+        }
+
+        return true;
+    }
+
     private async Task<string?> DeadLetterExchangeOfAsync(string queue, CancellationToken cancellationToken)
     {
         if (_deadLetterExchanges.TryGetValue(queue, out string? exchange))
@@ -955,6 +1080,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
             timeoutCts.CancelAfter(ManagementProbeTimeout);
 
             await _management.ProbeAsync(timeoutCts.Token);
+            _shovelEnabled = await IsShovelPluginEnabledAsync(timeoutCts.Token);
             SetManagementAvailability(null);
         }
         catch (OperationCanceledException) when (disposalToken.IsCancellationRequested)
@@ -978,6 +1104,21 @@ public sealed class RabbitMqProvider : IMessagingProvider
         }
     }
 
+    // The shovel API answers 400 without the plugin (or 401 for a user who may not see it).
+    private async Task<bool> IsShovelPluginEnabledAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _management.ListShovelsAsync(cancellationToken);
+            return true;
+        }
+        catch (HttpRequestException exception)
+        {
+            _logger.LogDebug(exception, "The RabbitMQ shovel API didn't answer; moving messages is off.");
+            return false;
+        }
+    }
+
     private void SetManagementAvailability(string? unavailableReason)
     {
         bool wasAvailable = _managementAvailable;
@@ -986,6 +1127,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
         {
             CanManageEntities = _managementAvailable,
             CanManageRules = _managementAvailable,
+            CanMoveMessages = _managementAvailable && _shovelEnabled,
             ManagementUnavailableReason = unavailableReason is null
                 ? null
                 : $"The RabbitMQ management API is unavailable ({unavailableReason}). Only queues listed in configuration are shown and entities can't be managed; enable the management plugin for discovery, counts and management.",

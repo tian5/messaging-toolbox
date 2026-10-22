@@ -20,6 +20,9 @@ public sealed record EntityOperations
     /// <summary>Remove every message at once.</summary>
     public bool CanPurge { get; init; } = true;
 
+    /// <summary>Move every message to another entity (<see cref="ProviderCapabilities.CanMoveMessages"/>).</summary>
+    public bool CanMoveMessages { get; init; } = true;
+
     /// <summary>Why some operations are off, shown as a hint; null when nothing is.</summary>
     public string? Reason { get; init; }
 }

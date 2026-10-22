@@ -377,6 +377,69 @@ public class RabbitMqRoundTripTests : IClassFixture<RabbitMqFixture>
         Body((await sut.ReceiveAsync(new ReceiveRequest("queues/rt-bind-queue", MessageSubQueue.Active, 10, null), CancellationToken.None)).ShouldHaveSingleItem()).ShouldBe("routed");
     }
 
+    [BrokerFact]
+    public async Task MoveMessagesAsync_ToQuorumQueueWithDeadLetterExchange_MovesEverythingInOrderWithHeaders()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.QueueDeclareAsync("rt-move-src", true, false, false);
+            await channel.QueueDeclareAsync("rt-move-dst", true, false, false, new Dictionary<string, object?>
+            {
+                ["x-queue-type"] = "quorum",
+                ["x-dead-letter-exchange"] = "rt-move-dlx",
+            });
+            BasicProperties properties = new() { Headers = new Dictionary<string, object?> { ["tenant"] = "acme" } };
+            await channel.BasicPublishAsync(string.Empty, "rt-move-src", false, properties, Encoding.UTF8.GetBytes("first"));
+            await PublishAsync(channel, "rt-move-src", "second", "third");
+        });
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+        await sut.ProbeCapabilitiesAsync(CancellationToken.None);
+
+
+        long moved = await sut.MoveMessagesAsync("queues/rt-move-src", "queues/rt-move-dst", CancellationToken.None);
+
+
+        sut.Capabilities.CanMoveMessages.ShouldBeTrue();
+        moved.ShouldBe(3);
+        (await sut.GetRuntimeInfoAsync("queues/rt-move-src", CancellationToken.None)).ActiveMessageCount.ShouldBe(0);
+        IReadOnlyList<ToolboxMessage> arrived = await sut.PeekAsync(new PeekRequest("queues/rt-move-dst", MessageSubQueue.Active, 10, null), CancellationToken.None);
+        arrived.Select(Body).ShouldBe(["first", "second", "third"]);
+        arrived[0].ApplicationProperties["tenant"].ShouldBe("acme");
+    }
+
+    [BrokerFact]
+    public async Task MoveMessagesAsync_MissingDestination_ThrowsEntityNotFoundAndKeepsTheMessages()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.QueueDeclareAsync("rt-move-orphan", true, false, false);
+            await PublishAsync(channel, "rt-move-orphan", "a");
+        });
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+
+
+        await Should.ThrowAsync<MessagingEntityNotFoundException>(
+            () => sut.MoveMessagesAsync("queues/rt-move-orphan", "queues/rt-move-nowhere", CancellationToken.None));
+
+
+        (await sut.GetRuntimeInfoAsync("queues/rt-move-orphan", CancellationToken.None)).ActiveMessageCount.ShouldBe(1);
+    }
+
+    [BrokerFact]
+    public async Task MoveMessagesAsync_FromStream_ThrowsNotSupported()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.QueueDeclareAsync("rt-move-stream", true, false, false, QueueType("stream"));
+            await channel.QueueDeclareAsync("rt-move-from-stream", true, false, false);
+        });
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(
+            () => sut.MoveMessagesAsync("queues/rt-move-stream", "queues/rt-move-from-stream", CancellationToken.None));
+    }
+
     private static ToolboxMessage Message(string body, string routingKey) => new()
     {
         Body = Encoding.UTF8.GetBytes(body),

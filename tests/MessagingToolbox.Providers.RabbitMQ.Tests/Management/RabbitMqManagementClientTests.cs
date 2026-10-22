@@ -118,6 +118,61 @@ public class RabbitMqManagementClientTests
         _handler.LastRequest.RequestUri!.AbsoluteUri.ShouldBe("http://broker:15672/api/bindings/%2F/e/events/e/archive/~abc");
     }
 
+    [Fact]
+    public async Task DeclareShovelAsync_Move_PutsAPredeclaredSelfDeletingShovel()
+    {
+        _handler.Respond(string.Empty, HttpStatusCode.Created);
+
+
+        await _sut.DeclareShovelAsync("move-1", RabbitMqShovelDefinition.Move("/", "orders.dlq", "orders"), CancellationToken.None);
+
+
+        _handler.LastRequest!.Method.ShouldBe(HttpMethod.Put);
+        _handler.LastRequest.RequestUri!.AbsoluteUri.ShouldBe("http://broker:15672/api/parameters/shovel/%2F/move-1");
+        _handler.LastBody.ShouldBe(
+            """{"value":{"src-protocol":"amqp091","src-uri":"amqp:///%2F","src-queue":"orders.dlq","src-predeclared":true,"src-delete-after":"queue-length","dest-protocol":"amqp091","dest-uri":"amqp:///%2F","dest-queue":"orders","dest-predeclared":true,"ack-mode":"on-confirm"}}""");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK, true)]
+    [InlineData(HttpStatusCode.NotFound, false)]
+    public async Task ShovelExistsAsync_Status_ReportsWhetherTheShovelIsStillThere(HttpStatusCode status, bool expected)
+    {
+        _handler.Respond("{}", status);
+
+
+        bool exists = await _sut.ShovelExistsAsync("move-1", CancellationToken.None);
+
+
+        exists.ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task DeleteShovelAsync_AlreadyGone_DoesNotThrow()
+    {
+        _handler.Respond("""{"error":"Object Not Found","reason":"Not Found"}""", HttpStatusCode.NotFound);
+
+
+        await _sut.DeleteShovelAsync("move-1", CancellationToken.None);
+
+
+        _handler.LastRequest!.Method.ShouldBe(HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task ListShovelsAsync_TerminatedShovel_MapsStateAndReason()
+    {
+        _handler.Respond("""[{"name":"move-1","vhost":"/","type":"dynamic","state":"terminated","reason":"\"needed a restart\""}]""");
+
+
+        IReadOnlyList<RabbitMqShovelStatus> shovels = await _sut.ListShovelsAsync(CancellationToken.None);
+
+
+        _handler.LastRequest!.RequestUri!.AbsoluteUri.ShouldBe("http://broker:15672/api/shovels/%2F");
+        shovels.ShouldHaveSingleItem().IsTerminated.ShouldBeTrue();
+        shovels[0].Reason.ShouldBe("\"needed a restart\"");
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         private string _body = "[]";

@@ -18,6 +18,7 @@ public static class AzureServiceBusCapabilities
 
         // Subscription rules (FR-6.3) aren't implemented yet; the provider describes no routing rule type.
         CanManageRules = false,
+        CanMoveMessages = false,
         CanPeek = true,
         CanReceiveSettle = true,
         SupportsSessions = true,
@@ -41,6 +42,7 @@ public static class AzureServiceBusCapabilities
     {
         CanManageEntities = false,
         CanManageRules = false,
+        CanMoveMessages = false,
         CanPeek = true,
         CanReceiveSettle = true,
         SupportsSessions = true,

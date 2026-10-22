@@ -717,6 +717,10 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
         return settled;
     }
 
+    // Service Bus has no broker-side move; copies go through requeue (clone, then remove the originals).
+    public Task<long> MoveMessagesAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken)
+        => throw new NotSupportedByProviderException("Azure Service Bus can't move messages inside the broker; requeue copies instead.");
+
     public async Task<long> PurgeAsync(string entityPath, MessageSubQueue subQueue, CancellationToken cancellationToken)
     {
         using Activity? activity = Telemetry.Source.StartActivity("servicebus.entity.purge");

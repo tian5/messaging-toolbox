@@ -26,11 +26,14 @@ audit.AddServiceBusQueue("audit-log");
 IResourceBuilder<AzureServiceBusTopicResource> auditEvents = audit.AddServiceBusTopic("audit-events");
 auditEvents.AddServiceBusSubscription("archiver");
 
-// RabbitMQ next to Service Bus: the management plugin gives the toolbox discovery and counts.
-// Aspire doesn't model queues or exchanges, so the playground declares its topology once the
-// broker is ready.
+// RabbitMQ next to Service Bus: the management plugin gives the toolbox discovery and counts, the
+// shovel plugins let it move messages. Aspire doesn't model queues or exchanges, so the
+// playground declares its topology once the broker is ready.
 IResourceBuilder<RabbitMQServerResource> rabbit = builder.AddRabbitMQ("rabbit")
     .WithManagementPlugin()
+    .WithContainerFiles("/etc/rabbitmq", [
+        new ContainerFile { Name = "enabled_plugins", Contents = "[rabbitmq_management,rabbitmq_prometheus,rabbitmq_shovel,rabbitmq_shovel_management]." },
+    ])
     .OnResourceReady(async (resource, _, cancellationToken) =>
     {
         string? connectionString = await resource.ConnectionStringExpression.GetValueAsync(cancellationToken);

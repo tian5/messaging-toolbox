@@ -41,4 +41,19 @@ public interface IRabbitMqManagementClient : IDisposable
     Task DeclareExchangeAsync(string name, RabbitMqExchangeDeclaration declaration, CancellationToken cancellationToken);
 
     Task DeleteExchangeAsync(string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The vhost's shovels and their state. Throws (400) without the shovel management plugin, so
+    /// it doubles as the probe for moving messages.
+    /// </summary>
+    Task<IReadOnlyList<RabbitMqShovelStatus>> ListShovelsAsync(CancellationToken cancellationToken);
+
+    /// <summary>Starts a dynamic shovel; needs the shovel plugin.</summary>
+    Task DeclareShovelAsync(string name, RabbitMqShovelDefinition definition, CancellationToken cancellationToken);
+
+    /// <summary>Whether the shovel still exists: one created with <c>src-delete-after</c> deletes itself once done.</summary>
+    Task<bool> ShovelExistsAsync(string name, CancellationToken cancellationToken);
+
+    /// <summary>Stops and removes the shovel; a no-op when it's already gone.</summary>
+    Task DeleteShovelAsync(string name, CancellationToken cancellationToken);
 }

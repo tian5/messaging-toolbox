@@ -40,7 +40,17 @@ public class AzureServiceBusProviderTests
         provider.Capabilities.CanManageEntities.ShouldBeTrue();
         provider.Capabilities.CanManageRules.ShouldBeFalse();
         provider.GetRoutingRuleType().ShouldBeNull();
+        provider.Capabilities.CanMoveMessages.ShouldBeFalse();
         provider.Capabilities.MaxMessageSizeBytes.ShouldBe(100 * 1024 * 1024);
+    }
+
+    [Fact]
+    public async Task MoveMessagesAsync_AnyConnection_ThrowsNotSupported()
+    {
+        await using AzureServiceBusProvider provider = CreateProvider(CloudConnectionString);
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(
+            () => provider.MoveMessagesAsync("orders/$deadletterqueue", "orders", CancellationToken.None));
     }
 
     [Fact]
