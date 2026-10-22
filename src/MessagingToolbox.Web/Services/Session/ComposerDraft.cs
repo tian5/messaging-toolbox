@@ -10,10 +10,8 @@ namespace MessagingToolbox.Web.Services.Session;
 /// </summary>
 public sealed class ComposerDraft
 {
-    public string TargetPath { get; set; } = string.Empty;
-
-    /// <summary>The selected entity the target follows while the user hasn't typed another target.</summary>
-    public string? FollowedPath { get; set; }
+    /// <summary>The entity the draft was last shown for; it tells when the selection moves on.</summary>
+    public string? EntityPath { get; private set; }
 
     public string? Body { get; set; } = string.Empty;
 
@@ -50,23 +48,15 @@ public sealed class ComposerDraft
     /// <summary>The prefill already applied, so a re-created composer doesn't apply it over the user's edits.</summary>
     public MessageDto? AppliedPrefill { get; set; }
 
-    /// <summary>
-    /// Points the target at the selected entity while the user hasn't chosen another target.
-    /// Returns true when the selection moved on.
-    /// </summary>
-    public bool Follow(string entityPath)
+    /// <summary>Records the entity the composer sends to; returns true when the selection moved on.</summary>
+    public bool MoveTo(string entityPath)
     {
-        if (FollowedPath == entityPath)
+        if (EntityPath == entityPath)
         {
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(TargetPath) || TargetPath == FollowedPath)
-        {
-            TargetPath = entityPath;
-        }
-
-        FollowedPath = entityPath;
+        EntityPath = entityPath;
         return true;
     }
 

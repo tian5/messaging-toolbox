@@ -102,7 +102,8 @@ Abstractions/
                               # PeekMode
     PeekRequest.cs / ReceiveRequest.cs / SettleRequest.cs / SettleBySequenceRequest.cs
     ReceiveDeferredRequest.cs / DeferredMessageReference.cs
-    EntityDefinition.cs / ResubmitOverrides.cs
+    EntityDefinition.cs / ResubmitOverrides.cs  # definitions name the entity; the provider builds its path (ADR 21)
+    EntityTypeDescriptor.cs / EntityOptionDescriptor.cs  # provider-supplied management schema (ADR 21)
   Errors/                     # MessagingProviderException and its subclasses:
                               # NotSupportedByProvider / MessagingEntityNotFound / MessageLockLost /
                               # MessagingProviderThrottled / MessagingProviderUnavailable
@@ -411,7 +412,9 @@ Providers.RabbitMQ/
   dead-lettered message reports `DeadLetterSourcePath` from `x-first-death-queue`, the default
   target of a resubmit; `PrepareResubmitAsync` clones the typed and application properties only.
 - **Entity details:** the queue and exchange type (classic/quorum/stream, direct/topic/…) is
-  reported as `MessagingEntity.TypeName`; durable/auto-delete/exclusive, the `x-*` arguments and
+  reported as `MessagingEntity.TypeName`; bindings (read once per listing from the management
+  API: a queue's source exchanges, an exchange's destinations, each with its routing key and
+  match arguments; the default exchange's implicit bindings are left out), durable/auto-delete/exclusive, the `x-*` arguments and
   the effective policy (one label table, so `x-message-ttl` and a policy's `message-ttl` read the
   same), consumers and unacknowledged counts as `Properties`. Both are display-only: the tree
   and details panel render them and never branch on them, so behaviour stays on `PeekMode` and
@@ -787,3 +790,21 @@ Aspire.Hosting/
     connection-wide and the precedence is unclear). Moving the existing `Kind`-based gating in the
     Web layer (exchanges and topics can't be peeked, subscriptions can't be sent to) onto
     provider-set operations is a follow-up.
+21. **Entity management is described by the provider; definitions name entities** — The
+    entity editor hard-coded the Service Bus settings, so a second broker couldn't use it, and
+    the Web layer built and parsed Service Bus paths. Providers now describe what they can
+    create through `IMessagingProvider.GetEntityTypes()`: one `EntityTypeDescriptor` per kind
+    (label, optional parent kind, help text) with `EntityOptionDescriptor`s (key, label, type
+    Text/Boolean/Integer/Duration/Choice, default, choices, `CreateOnly`). The editor renders that
+    schema and sends values typed by it (`bool`, `long`, `TimeSpan`, `string`), so the provider
+    reads exactly the keys and types it declared; the schema lives next to the code that applies
+    it (`AzureServiceBusEntityTypes`, `RabbitMqEntityTypes`) so the two can't drift. Options the
+    broker fixes when an entity is created are `CreateOnly` and read-only when editing; RabbitMQ
+    fixes all of them (a redeclaration with different arguments is refused), so an existing queue
+    or exchange opens read-only and later changes go through policies. `EntityDefinition` carries
+    the entity's `Name` (plus `ParentPath` for child types) instead of its path, and the provider
+    builds the path, so no layer above it knows `topic/subscriptions/x` or `queues/x`. RabbitMQ
+    declares and deletes through the management API, whose refusals carry the broker's reason
+    (shown as is), and enables `CanManageEntities` only while that API answers. Rejected:
+    per-broker editor components (every new broker would need UI work), and passing raw JSON
+    arguments (no validation, no labels).

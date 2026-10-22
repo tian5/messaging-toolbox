@@ -43,6 +43,10 @@ public class RabbitMqProviderTests
             new RabbitMqExchangeInfo { Name = "internal-x", Type = "topic", Internal = true },
             new RabbitMqExchangeInfo { Name = "events", Type = "topic" },
         ]);
+        _management.ListBindingsAsync(Arg.Any<CancellationToken>()).Returns(
+        [
+            new RabbitMqBindingInfo { Source = "events", Destination = "orders", DestinationType = "queue", RoutingKey = "order.*" },
+        ]);
         await using RabbitMqProvider sut = CreateProvider();
 
 
@@ -61,6 +65,8 @@ public class RabbitMqProviderTests
         entities.Select(entity => entity.TypeName).ShouldBe(["quorum", "stream", "topic"]);
         entities[0].Properties.ShouldContain(property => property.Key == "x-dead-letter-exchange" && property.Value == "orders.dlx");
         entities[0].Operations.ShouldBe(EntityOperations.All);
+        entities[0].Properties[0].ShouldBe(new EntityProperty("Bound from", "events", "order.*") { Key = "routing key" });
+        entities[2].Properties.ShouldContain(property => property.Group == "Routes to" && property.Name == "orders");
         entities[1].Operations.ShouldSatisfyAllConditions(
             operations => operations.CanReceive.ShouldBeFalse(),
             operations => operations.CanReceiveSettle.ShouldBeFalse(),
@@ -219,6 +225,96 @@ public class RabbitMqProviderTests
         clone.BrokerProperties.ShouldBeEmpty();
         clone.ApplicationProperties["tenant"].ShouldBe("contoso");
         clone.ApplicationProperties["toolbox-replayed-from"].ShouldBe("m-1");
+    }
+
+    [Fact]
+    public async Task ProbeCapabilitiesAsync_ManagementAvailable_EnablesEntityManagement()
+    {
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        await sut.ProbeCapabilitiesAsync(CancellationToken.None);
+
+
+        sut.Capabilities.CanManageEntities.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateEntityAsync_Queue_DeclaresThroughManagementAndReturnsItsPath()
+    {
+        await using RabbitMqProvider sut = CreateProvider();
+        EntityDefinition definition = new("orders", EntityKind.Queue, null, new Dictionary<string, object?> { ["x-queue-type"] = "quorum" });
+
+
+        MessagingEntity entity = await sut.CreateOrUpdateEntityAsync(definition, CancellationToken.None);
+
+
+        entity.Path.ShouldBe("queues/orders");
+        entity.TypeName.ShouldBe("quorum");
+        await _management.Received(1).DeclareQueueAsync(
+            "orders",
+            Arg.Is<RabbitMqQueueDeclaration>(declaration => (string)declaration.Arguments["x-queue-type"] == "quorum"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateEntityAsync_ManagementUnreachable_ThrowsNotSupportedWithReason()
+    {
+        _management.ProbeAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException("Connection refused"));
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        NotSupportedByProviderException exception = await Should.ThrowAsync<NotSupportedByProviderException>(() => sut.CreateOrUpdateEntityAsync(
+            new EntityDefinition("orders", EntityKind.Queue, null, new Dictionary<string, object?>()), CancellationToken.None));
+
+
+        exception.Message.ShouldContain("management API is unavailable");
+        await _management.DidNotReceiveWithAnyArgs().DeclareQueueAsync(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateEntityAsync_BrokerRefusesRedeclaration_ReportsTheBrokersReason()
+    {
+        _management.DeclareQueueAsync("orders", Arg.Any<RabbitMqQueueDeclaration>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("inequivalent arg 'x-queue-type'", null, System.Net.HttpStatusCode.BadRequest));
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        MessagingProviderException exception = await Should.ThrowAsync<MessagingProviderException>(() => sut.CreateOrUpdateEntityAsync(
+            new EntityDefinition("orders", EntityKind.Queue, null, new Dictionary<string, object?>()), CancellationToken.None));
+
+
+        exception.Message.ShouldContain("inequivalent arg 'x-queue-type'");
+    }
+
+    [Fact]
+    public async Task DeleteEntityAsync_Exchange_DeletesThroughManagement()
+    {
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        await sut.DeleteEntityAsync("exchanges/events", CancellationToken.None);
+
+
+        await _management.Received(1).DeleteExchangeAsync("events", Arg.Any<CancellationToken>());
+        await _management.DidNotReceiveWithAnyArgs().DeleteQueueAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task GetEntityDefinitionAsync_Exchange_ReadsItsDeclaration()
+    {
+        _management.GetExchangeAsync("events", Arg.Any<CancellationToken>())
+            .Returns(new RabbitMqExchangeInfo { Name = "events", Type = "topic", Durable = true, Internal = true });
+        await using RabbitMqProvider sut = CreateProvider();
+
+
+        EntityDefinition definition = await sut.GetEntityDefinitionAsync("exchanges/events", CancellationToken.None);
+
+
+        definition.Name.ShouldBe("events");
+        definition.Kind.ShouldBe(EntityKind.Exchange);
+        definition.Options["type"].ShouldBe("topic");
+        definition.Options["internal"].ShouldBe(true);
     }
 
     private static async Task<List<MessagingEntity>> ListAsync(RabbitMqProvider sut)

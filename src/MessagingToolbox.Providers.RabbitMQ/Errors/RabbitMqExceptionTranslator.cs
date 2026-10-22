@@ -38,7 +38,9 @@ public static class RabbitMqExceptionTranslator
         OperationInterruptedException { ShutdownReason.ReplyCode: PreconditionFailed } interrupted => new MessagingProviderException(
             $"The broker rejected the request on '{entityPath}': {interrupted.ShutdownReason?.ReplyText}", exception),
         HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } => new MessagingProviderException(
-            "The RabbitMQ management API rejected the credentials — the user needs the 'monitoring' or 'management' tag.", exception),
+            $"The RabbitMQ management API refused the request on '{entityPath}' — the user needs the 'monitoring' or 'management' tag, and configure permission to change entities.", exception),
+        HttpRequestException { StatusCode: HttpStatusCode.BadRequest } => new MessagingProviderException(
+            $"The broker rejected the request on '{entityPath}': {exception.Message}", exception),
         HttpRequestException { StatusCode: HttpStatusCode.NotFound } => new MessagingEntityNotFoundException(entityPath, exception),
         HttpRequestException => new MessagingProviderUnavailableException(
             $"The RabbitMQ management API could not be reached. {UnavailableHint}", exception),

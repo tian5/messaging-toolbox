@@ -95,7 +95,7 @@ public partial class MessageComposer : IAsyncDisposable
     private string? _error;
     private bool _removeOriginal;
 
-    private string TargetPath => string.IsNullOrWhiteSpace(Draft.TargetPath) ? EntityPath : Draft.TargetPath.Trim();
+    private string TargetPath => EntityPath;
 
     private string EditorLanguage
         => Draft.ContentType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true ? "json"
@@ -104,7 +104,7 @@ public partial class MessageComposer : IAsyncDisposable
 
     protected override void OnParametersSet()
     {
-        if (Draft.Follow(EntityPath))
+        if (Draft.MoveTo(EntityPath))
         {
             Draft.ShowSystemProperties |= RequiresSession;
         }

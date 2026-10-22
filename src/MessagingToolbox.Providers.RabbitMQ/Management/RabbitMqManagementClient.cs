@@ -1,12 +1,13 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 
 namespace MessagingToolbox.Providers.RabbitMQ.Management;
 
 /// <summary>
 /// Thin typed client over the management HTTP API (no SDK exists from the RabbitMQ team, and the
-/// toolbox needs a handful of read endpoints). One instance per connection, owned by its provider.
+/// toolbox needs a handful of endpoints). One instance per connection, owned by its provider.
 /// </summary>
 public sealed class RabbitMqManagementClient : IRabbitMqManagementClient
 {
@@ -43,18 +44,78 @@ public sealed class RabbitMqManagementClient : IRabbitMqManagementClient
         => await GetAsync<List<RabbitMqQueueInfo>>($"api/queues/{_virtualHost}?columns={QueueColumns}", cancellationToken);
 
     public async Task<RabbitMqQueueInfo> GetQueueAsync(string name, CancellationToken cancellationToken)
-        => await GetAsync<RabbitMqQueueInfo>($"api/queues/{_virtualHost}/{Uri.EscapeDataString(name)}", cancellationToken);
+        => await GetAsync<RabbitMqQueueInfo>(QueueUrl(name), cancellationToken);
 
     public async Task<IReadOnlyList<RabbitMqExchangeInfo>> ListExchangesAsync(CancellationToken cancellationToken)
         => await GetAsync<List<RabbitMqExchangeInfo>>($"api/exchanges/{_virtualHost}?columns={ExchangeColumns}", cancellationToken);
 
+    public async Task<RabbitMqExchangeInfo> GetExchangeAsync(string name, CancellationToken cancellationToken)
+        => await GetAsync<RabbitMqExchangeInfo>(ExchangeUrl(name), cancellationToken);
+
+    public async Task<IReadOnlyList<RabbitMqBindingInfo>> ListBindingsAsync(CancellationToken cancellationToken)
+        => await GetAsync<List<RabbitMqBindingInfo>>($"api/bindings/{_virtualHost}", cancellationToken);
+
+    public async Task DeclareQueueAsync(string name, RabbitMqQueueDeclaration declaration, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _httpClient.PutAsJsonAsync(QueueUrl(name), declaration, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
+    public async Task DeleteQueueAsync(string name, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _httpClient.DeleteAsync(QueueUrl(name), cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
+    public async Task DeclareExchangeAsync(string name, RabbitMqExchangeDeclaration declaration, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _httpClient.PutAsJsonAsync(ExchangeUrl(name), declaration, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
+    public async Task DeleteExchangeAsync(string name, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _httpClient.DeleteAsync(ExchangeUrl(name), cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
     public void Dispose() => _httpClient.Dispose();
+
+    private string QueueUrl(string name) => $"api/queues/{_virtualHost}/{Uri.EscapeDataString(name)}";
+
+    private string ExchangeUrl(string name) => $"api/exchanges/{_virtualHost}/{Uri.EscapeDataString(name)}";
 
     private async Task<T> GetAsync<T>(string relativeUrl, CancellationToken cancellationToken)
     {
         using HttpResponseMessage response = await _httpClient.GetAsync(relativeUrl, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, cancellationToken);
         return await response.Content.ReadFromJsonAsync<T>(cancellationToken)
             ?? throw new HttpRequestException($"The management API returned an empty response for '{relativeUrl}'.");
+    }
+
+    // The API explains refusals in {"error": …, "reason": …}; keep the reason, it's what the user needs
+    // (e.g. "inequivalent arg 'x-queue-type' for queue 'orders'").
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        string? reason = null;
+        try
+        {
+            RabbitMqErrorResponse? error = await response.Content.ReadFromJsonAsync<RabbitMqErrorResponse>(cancellationToken);
+            reason = error?.Reason ?? error?.Error;
+        }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException)
+        {
+            // Not the API's JSON error shape (e.g. a proxy's HTML page); the status code still tells.
+        }
+
+        throw new HttpRequestException(
+            reason ?? $"The management API answered {(int)response.StatusCode} {response.ReasonPhrase}.",
+            inner: null,
+            response.StatusCode);
     }
 }

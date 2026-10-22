@@ -42,7 +42,7 @@ public class CreateOrUpdateEntityCommandHandlerTests
     {
         _provider.CreateOrUpdateEntityAsync(
                 Arg.Is<EntityDefinition>(definition =>
-                    definition.Path == "orders" &&
+                    definition.Name == "orders" &&
                     definition.Kind == EntityKind.Queue),
                 Arg.Any<CancellationToken>())
             .Returns(new MessagingEntity { Path = "orders", Name = "orders", Kind = EntityKind.Queue });
@@ -61,11 +61,11 @@ public class CreateOrUpdateEntityCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_SubscriptionDefinition_BuildsSubscriptionPath()
+    public async Task Handle_SubscriptionDefinition_PassesNameAndParentAndReturnsProviderPath()
     {
         _provider.CreateOrUpdateEntityAsync(
                 Arg.Is<EntityDefinition>(definition =>
-                    definition.Path == "events/subscriptions/processor" &&
+                    definition.Name == "processor" &&
                     definition.Kind == EntityKind.Subscription &&
                     definition.ParentPath == "events"),
                 Arg.Any<CancellationToken>())
@@ -73,7 +73,7 @@ public class CreateOrUpdateEntityCommandHandlerTests
 
 
         string path = await _sut.Handle(
-            new CreateOrUpdateEntityCommand(ConnectionId, "events/subscriptions/processor", EntityKind.Subscription, "events", new Dictionary<string, object?>()),
+            new CreateOrUpdateEntityCommand(ConnectionId, "processor", EntityKind.Subscription, "events", new Dictionary<string, object?>()),
             CancellationToken.None);
 
 

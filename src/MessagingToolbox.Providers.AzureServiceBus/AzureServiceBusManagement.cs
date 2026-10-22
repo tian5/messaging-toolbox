@@ -329,7 +329,7 @@ public sealed class AzureServiceBusManagement : IAzureServiceBusManagement
             Response<SubscriptionProperties> response = await _administrationClient.GetSubscriptionAsync(topicName, subscriptionName, cancellationToken);
             SubscriptionProperties properties = response.Value;
             return new EntityDefinition(
-                entityPath,
+                subscriptionName,
                 EntityKind.Subscription,
                 topicName,
                 new Dictionary<string, object?>(StringComparer.Ordinal)

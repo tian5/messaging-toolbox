@@ -797,6 +797,8 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
         }
     }
 
+    public IReadOnlyList<EntityTypeDescriptor> GetEntityTypes() => AzureServiceBusEntityTypes.All;
+
     public async Task<MessagingEntity> CreateOrUpdateEntityAsync(EntityDefinition definition, CancellationToken cancellationToken)
     {
         await EnsureCapabilitiesProbedAsync(cancellationToken);
@@ -807,15 +809,13 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
                 "This connection does not support entity management.");
         }
 
-        (string path, string? subscription) = ServiceBusEntityPath.Split(definition.Path);
-
         MessagingEntity entity = definition.Kind switch
         {
-            EntityKind.Queue => await _management!.CreateOrUpdateQueueAsync(path, definition.Options, cancellationToken),
-            EntityKind.Topic => await _management!.CreateOrUpdateTopicAsync(path, definition.Options, cancellationToken),
-            EntityKind.Subscription when subscription is not null && definition.ParentPath is not null =>
-                await _management!.CreateOrUpdateSubscriptionAsync(definition.ParentPath, subscription, definition.Options, cancellationToken),
-            _ => throw new NotSupportedByProviderException($"Entity definition '{definition.Path}' is not valid for create or update."),
+            EntityKind.Queue => await _management!.CreateOrUpdateQueueAsync(definition.Name, definition.Options, cancellationToken),
+            EntityKind.Topic => await _management!.CreateOrUpdateTopicAsync(definition.Name, definition.Options, cancellationToken),
+            EntityKind.Subscription when definition.ParentPath is not null =>
+                await _management!.CreateOrUpdateSubscriptionAsync(definition.ParentPath, definition.Name, definition.Options, cancellationToken),
+            _ => throw new NotSupportedByProviderException($"A {definition.Kind} named '{definition.Name}' can't be created on Azure Service Bus."),
         };
 
         LearnSessionRequirements([entity]);

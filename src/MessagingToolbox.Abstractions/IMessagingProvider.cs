@@ -100,6 +100,12 @@ public interface IMessagingProvider : IAsyncDisposable
     /// </summary>
     Task<IReadOnlyList<long>> CancelScheduledAsync(string entityPath, IReadOnlyList<long> sequenceNumbers, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The entity types this connection can create and the options each accepts (ADR 21); empty
+    /// when it can't manage entities at all.
+    /// </summary>
+    IReadOnlyList<EntityTypeDescriptor> GetEntityTypes();
+
     Task<MessagingEntity> CreateOrUpdateEntityAsync(EntityDefinition definition, CancellationToken cancellationToken);
 
     Task DeleteEntityAsync(string entityPath, CancellationToken cancellationToken);

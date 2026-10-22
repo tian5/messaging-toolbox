@@ -175,7 +175,8 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
   that are no longer deferred, are locked elsewhere or are gone are skipped and reported.
 
 ### FR-4 Sending & editing
-- FR-4.1 Composer with Monaco editor: body, content type, every system property, and a
+- FR-4.1 Composer with Monaco editor, sending to the selected entity (the target is shown
+  read-only; "Copy / move to…" sends elsewhere): body, content type, every system property, and a
   key/value grid for application properties, each sent with a chosen type (string, Int32,
   Int64, Boolean, Double, DateTime, Guid; ADR 14). Repair prefills keep each property's type.
   The composer keeps its draft per connection — after a send and across node switches — so the
@@ -215,7 +216,10 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
   tokens.
 
 ### FR-6 Entity management (capability-gated)
-- FR-6.1 Create/update/delete queues, topics, subscriptions.
+- FR-6.1 Create/update/delete the entity types the provider describes (queues, topics and
+  subscriptions on Service Bus; queues and exchanges on RabbitMQ). The editor is built from the
+  provider's entity-type schema (ADR 21): options the broker fixes at creation are read-only when
+  editing, and an entity whose every option is fixed opens read-only.
 - FR-6.2 Full settings surface: lock duration, default TTL, max size, duplicate detection
   window, require session, dead-letter on expiration, forward-to, auto-delete-on-idle,
   enable/disable (send/receive/both).
@@ -247,8 +251,8 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 - FR-9.2 Explorer: queues (classic, quorum, stream) and user exchanges from the management API,
   with counts; without the API, config-listed queues counted over AMQP and the reason shown.
   Dead-letter queues are ordinary queues (no DLQ sub-node). Queue and exchange types are tagged
-  in the tree; durable/auto-delete/exclusive, arguments, policy and consumers are listed under
-  Properties. Streams offer peek and send only, with the reason shown (ADR 20). *(Done, Phase 4a.)*
+  in the tree; bindings (bound from / routes to, with routing keys), durable/auto-delete/exclusive,
+  arguments, policy and consumers are listed under Properties. Streams offer peek and send only, with the reason shown (ADR 20). *(Done, Phase 4a.)*
 - FR-9.3 Peek: classic and quorum queues by get + nack-requeue, only on an explicit Load and
   disclosed next to it (ADR 18); streams read from their first offset without side effects.
   Death history (`x-death`, `x-first-death-*`) and delivery counts shown as broker properties.
@@ -260,8 +264,11 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
   only when the queue has one) with Release held and a 5-minute idle release; "Copy / move to…"
   on any queue, defaulting to the queue a message was dead-lettered from (ADR 19).
   *(Done, Phase 4b.)*
-- FR-9.6 Manage queues, exchanges and bindings; move messages with a dynamic shovel; stream
-  offsets. *(Phase 4c.)*
+- FR-9.6 Manage queues (type, durability, TTL, length limits, overflow, dead-lettering, delivery
+  limit, stream retention) and exchanges (type, durability, internal, alternate exchange) through
+  the management API; refusals show the broker's reason. *(Done, Phase 4c.)*
+- FR-9.7 Bindings (list, create, delete); move messages with a dynamic shovel; stream offsets and
+  live watch on streams. *(Phase 4c.)*
 
 ### FR-8 Developer-experience extras (post-MVP)
 - Load/burst sender (rate, count, template-driven) for testing consumers.

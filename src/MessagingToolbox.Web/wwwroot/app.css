@@ -247,6 +247,14 @@ textarea {
         opacity: 0.6;
     }
 
+    /* Read-only values (e.g. the composer target) look fixed but stay legible and selectable. */
+    input[readonly] {
+        background: var(--bg-raised);
+        color: var(--text-muted);
+        box-shadow: none;
+        cursor: default;
+    }
+
 input[type="checkbox"] {
     width: 15px;
     height: 15px;

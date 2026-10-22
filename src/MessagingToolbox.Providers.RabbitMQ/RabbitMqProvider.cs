@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using MessagingToolbox.Abstractions;
 using MessagingToolbox.Abstractions.Errors;
 using MessagingToolbox.Abstractions.Messaging;
@@ -310,14 +311,94 @@ public sealed class RabbitMqProvider : IMessagingProvider
     public Task<IReadOnlyList<long>> CancelScheduledAsync(string entityPath, IReadOnlyList<long> sequenceNumbers, CancellationToken cancellationToken)
         => throw new NotSupportedByProviderException("RabbitMQ has no scheduled messages.");
 
-    public Task<MessagingEntity> CreateOrUpdateEntityAsync(EntityDefinition definition, CancellationToken cancellationToken)
-        => throw NotYetSupported("Entity management");
+    public IReadOnlyList<EntityTypeDescriptor> GetEntityTypes() => RabbitMqEntityTypes.All;
 
-    public Task DeleteEntityAsync(string entityPath, CancellationToken cancellationToken)
-        => throw NotYetSupported("Entity management");
+    // Declarations go through the management API, which reports refusals with the broker's reason
+    // (an AMQP redeclaration failure would close the channel with less to show).
+    public async Task<MessagingEntity> CreateOrUpdateEntityAsync(EntityDefinition definition, CancellationToken cancellationToken)
+    {
+        using Activity? activity = Telemetry.Source.StartActivity("rabbitmq.entities.save");
 
-    public Task<EntityDefinition> GetEntityDefinitionAsync(string entityPath, CancellationToken cancellationToken)
-        => throw NotYetSupported("Entity management");
+        await RequireManagementAsync(cancellationToken);
+
+        string name = definition.Name;
+        string path = definition.Kind switch
+        {
+            EntityKind.Queue => RabbitMqEntityPath.ForQueue(name),
+            EntityKind.Exchange => RabbitMqEntityPath.ForExchange(name),
+            _ => throw new NotSupportedByProviderException($"RabbitMQ has queues and exchanges; a {definition.Kind} can't be created."),
+        };
+
+        try
+        {
+            if (definition.Kind == EntityKind.Queue)
+            {
+                await _management.DeclareQueueAsync(name, RabbitMqEntityTypes.ToQueueDeclaration(definition.Options), cancellationToken);
+                ForgetQueue(name);
+            }
+            else
+            {
+                await _management.DeclareExchangeAsync(name, RabbitMqEntityTypes.ToExchangeDeclaration(definition.Options), cancellationToken);
+            }
+        }
+        catch (Exception exception) when (RabbitMqExceptionTranslator.CanTranslate(exception))
+        {
+            throw RabbitMqExceptionTranslator.Translate(exception, path);
+        }
+
+        string typeKey = definition.Kind == EntityKind.Queue ? RabbitMqEntityTypes.QueueType : RabbitMqEntityTypes.ExchangeType;
+        return new MessagingEntity
+        {
+            Path = path,
+            Name = name,
+            Kind = definition.Kind,
+            TypeName = definition.Options.GetValueOrDefault(typeKey) as string,
+            Status = MessagingEntityStatus.Active,
+        };
+    }
+
+    public async Task DeleteEntityAsync(string entityPath, CancellationToken cancellationToken)
+    {
+        using Activity? activity = Telemetry.Source.StartActivity("rabbitmq.entities.delete");
+
+        await RequireManagementAsync(cancellationToken);
+
+        (EntityKind kind, string name) = RabbitMqEntityPath.Parse(entityPath);
+        try
+        {
+            if (kind == EntityKind.Queue)
+            {
+                await _management.DeleteQueueAsync(name, cancellationToken);
+                ForgetQueue(name);
+            }
+            else
+            {
+                await _management.DeleteExchangeAsync(name, cancellationToken);
+            }
+        }
+        catch (Exception exception) when (RabbitMqExceptionTranslator.CanTranslate(exception))
+        {
+            throw RabbitMqExceptionTranslator.Translate(exception, entityPath);
+        }
+    }
+
+    public async Task<EntityDefinition> GetEntityDefinitionAsync(string entityPath, CancellationToken cancellationToken)
+    {
+        await RequireManagementAsync(cancellationToken);
+
+        (EntityKind kind, string name) = RabbitMqEntityPath.Parse(entityPath);
+        try
+        {
+            IReadOnlyDictionary<string, object?> options = kind == EntityKind.Queue
+                ? RabbitMqEntityTypes.FromQueue(await _management.GetQueueAsync(name, cancellationToken))
+                : RabbitMqEntityTypes.FromExchange(await _management.GetExchangeAsync(name, cancellationToken));
+            return new EntityDefinition(name, kind, null, options);
+        }
+        catch (Exception exception) when (RabbitMqExceptionTranslator.CanTranslate(exception))
+        {
+            throw RabbitMqExceptionTranslator.Translate(exception, entityPath);
+        }
+    }
 
     // Always a clone from the typed and application properties; broker properties (death history,
     // delivery counts) never travel along. Removing the original is a separate, held-delivery ack.
@@ -378,8 +459,22 @@ public sealed class RabbitMqProvider : IMessagingProvider
         _disposalTokenSource.Dispose();
     }
 
-    private static NotSupportedByProviderException NotYetSupported(string operation)
-        => new($"{operation} is not available for RabbitMQ connections yet.");
+    private async Task RequireManagementAsync(CancellationToken cancellationToken)
+    {
+        await EnsureManagementProbedAsync(cancellationToken);
+        if (!_managementAvailable)
+        {
+            throw new NotSupportedByProviderException(
+                _capabilities.ManagementUnavailableReason ?? "Managing queues and exchanges needs the RabbitMQ management API.");
+        }
+    }
+
+    // A queue declared or deleted under the same name may be a different type now.
+    private void ForgetQueue(string name)
+    {
+        _streamQueues.TryRemove(name, out _);
+        _deadLetterExchanges.TryRemove(name, out _);
+    }
 
     private static string RequireActiveQueue(string entityPath, MessageSubQueue subQueue)
     {
@@ -413,6 +508,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
         }
 
         IReadOnlyDictionary<string, uint> ready = await CountReadyMessagesAsync(queues, cancellationToken);
+        IReadOnlyList<RabbitMqBindingInfo> bindings = await ListBindingsOrNoneAsync(cancellationToken);
 
         List<MessagingEntity> entities = [];
         foreach (RabbitMqQueueInfo queue in queues)
@@ -429,7 +525,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 PeekMode = queue.IsStream ? PeekMode.NonDestructive : PeekMode.Requeue,
                 DeadLetterExchange = queue.DeadLetterExchange,
                 Operations = queue.IsStream ? StreamOperations : EntityOperations.All,
-                Properties = RabbitMqEntityProperties.ForQueue(queue),
+                Properties = RabbitMqEntityProperties.ForQueue(queue, bindings),
                 RuntimeInfo = ToRuntimeInfo(queue, ready),
             });
         }
@@ -446,11 +542,25 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 Kind = EntityKind.Exchange,
                 TypeName = exchange.Type,
                 Status = MessagingEntityStatus.Active,
-                Properties = RabbitMqEntityProperties.ForExchange(exchange),
+                Properties = RabbitMqEntityProperties.ForExchange(exchange, bindings),
             });
         }
 
         return entities;
+    }
+
+    // Bindings only add detail to the listing, so failing to read them must not fail discovery.
+    private async Task<IReadOnlyList<RabbitMqBindingInfo>> ListBindingsOrNoneAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _management.ListBindingsAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug(exception, "Listing RabbitMQ bindings failed; entities are shown without them.");
+            return [];
+        }
     }
 
     // Without the management API, AMQP can't list anything: show the queues the host configured
@@ -813,9 +923,10 @@ public sealed class RabbitMqProvider : IMessagingProvider
         _managementAvailable = unavailableReason is null;
         Interlocked.Exchange(ref _capabilities, RabbitMqCapabilities.Default with
         {
+            CanManageEntities = _managementAvailable,
             ManagementUnavailableReason = unavailableReason is null
                 ? null
-                : $"The RabbitMQ management API is unavailable ({unavailableReason}). Only queues listed in configuration are shown; enable the management plugin for discovery and counts.",
+                : $"The RabbitMQ management API is unavailable ({unavailableReason}). Only queues listed in configuration are shown and entities can't be managed; enable the management plugin for discovery, counts and management.",
         });
 
         if (wasAvailable != _managementAvailable || unavailableReason is not null)

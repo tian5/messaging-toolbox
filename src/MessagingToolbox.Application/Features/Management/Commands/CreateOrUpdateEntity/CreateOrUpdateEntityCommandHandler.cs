@@ -35,7 +35,7 @@ public sealed class CreateOrUpdateEntityCommandHandler : IRequestHandler<CreateO
     {
         IMessagingProvider provider = await _providerFactory.GetProviderAsync(request.ConnectionId, cancellationToken);
 
-        EntityDefinition definition = new(request.Path, request.Kind, request.ParentPath, request.Options);
+        EntityDefinition definition = new(request.Name, request.Kind, request.ParentPath, request.Options);
         MessagingEntity entity = await provider.CreateOrUpdateEntityAsync(definition, cancellationToken);
 
         ConnectionInfo? connection = await _connectionCatalog.GetByIdAsync(request.ConnectionId, cancellationToken);

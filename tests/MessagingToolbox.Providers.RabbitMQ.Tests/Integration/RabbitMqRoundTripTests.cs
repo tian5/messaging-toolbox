@@ -29,6 +29,7 @@ public class RabbitMqRoundTripTests : IClassFixture<RabbitMqFixture>
             await channel.QueueDeclareAsync("rt-list-quorum", true, false, false, QueueType("quorum"));
             await channel.QueueDeclareAsync("rt-list-stream", true, false, false, QueueType("stream"));
             await channel.ExchangeDeclareAsync("rt-list-exchange", ExchangeType.Topic, durable: true);
+            await channel.QueueBindAsync("rt-list-quorum", "rt-list-exchange", "orders.*");
         });
         await using RabbitMqProvider sut = _fixture.CreateProvider();
 
@@ -40,6 +41,7 @@ public class RabbitMqRoundTripTests : IClassFixture<RabbitMqFixture>
         quorum.PeekMode.ShouldBe(PeekMode.Requeue);
         quorum.TypeName.ShouldBe("quorum");
         quorum.Properties.ShouldContain(new EntityProperty("Settings", "Durable", "yes"));
+        quorum.Properties.ShouldContain(new EntityProperty("Bound from", "rt-list-exchange", "orders.*") { Key = "routing key" });
         MessagingEntity stream = entities.Single(entity => entity.Path == "queues/rt-list-stream");
         stream.PeekMode.ShouldBe(PeekMode.NonDestructive);
         stream.TypeName.ShouldBe("stream");
@@ -307,6 +309,46 @@ public class RabbitMqRoundTripTests : IClassFixture<RabbitMqFixture>
         ToolboxMessage resent = (await sut.ReceiveAsync(new ReceiveRequest("queues/rt-resubmit-source", MessageSubQueue.Active, 10, null), CancellationToken.None)).Single();
         Body(resent).ShouldBe("retry-me");
         resent.ApplicationProperties.ShouldContainKey("toolbox-replayed-from");
+    }
+
+    [BrokerFact]
+    public async Task CreateOrUpdateEntityAsync_QuorumQueue_IsListedReadBackAndRefusesAChangedType()
+    {
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+        Dictionary<string, object?> options = new()
+        {
+            ["x-queue-type"] = "quorum",
+            ["durable"] = true,
+            ["x-message-ttl"] = TimeSpan.FromMinutes(5),
+            ["x-delivery-limit"] = 3L,
+        };
+
+
+        await sut.CreateOrUpdateEntityAsync(new EntityDefinition("rt-manage-quorum", EntityKind.Queue, null, options), CancellationToken.None);
+        EntityDefinition definition = await sut.GetEntityDefinitionAsync("queues/rt-manage-quorum", CancellationToken.None);
+        MessagingProviderException refused = await Should.ThrowAsync<MessagingProviderException>(() => sut.CreateOrUpdateEntityAsync(
+            new EntityDefinition("rt-manage-quorum", EntityKind.Queue, null, new Dictionary<string, object?> { ["x-queue-type"] = "classic" }), CancellationToken.None));
+
+
+        (await ListAsync(sut)).Single(entity => entity.Path == "queues/rt-manage-quorum").TypeName.ShouldBe("quorum");
+        definition.Options["x-message-ttl"].ShouldBe(TimeSpan.FromMinutes(5));
+        definition.Options["x-delivery-limit"].ShouldBe(3L);
+        refused.Message.ShouldContain("inequivalent");
+    }
+
+    [BrokerFact]
+    public async Task DeleteEntityAsync_CreatedExchange_IsGoneFromTheListing()
+    {
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+        await sut.CreateOrUpdateEntityAsync(
+            new EntityDefinition("rt-manage-exchange", EntityKind.Exchange, null, new Dictionary<string, object?> { ["type"] = "fanout" }), CancellationToken.None);
+        (await ListAsync(sut)).ShouldContain(entity => entity.Path == "exchanges/rt-manage-exchange" && entity.TypeName == "fanout");
+
+
+        await sut.DeleteEntityAsync("exchanges/rt-manage-exchange", CancellationToken.None);
+
+
+        (await ListAsync(sut)).ShouldNotContain(entity => entity.Path == "exchanges/rt-manage-exchange");
     }
 
     private static Dictionary<string, object?> QueueType(string type) => new() { ["x-queue-type"] = type };

@@ -62,6 +62,34 @@ public class RabbitMqManagementClientTests
         exception.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
+    [Fact]
+    public async Task DeclareQueueAsync_Declaration_PutsFieldsAndArguments()
+    {
+        _handler.Respond(string.Empty, HttpStatusCode.Created);
+
+
+        await _sut.DeclareQueueAsync("orders", new RabbitMqQueueDeclaration(true, false, new Dictionary<string, object> { ["x-message-ttl"] = 5000L }), CancellationToken.None);
+
+
+        _handler.LastRequest!.Method.ShouldBe(HttpMethod.Put);
+        _handler.LastRequest.RequestUri!.AbsoluteUri.ShouldBe("http://broker:15672/api/queues/%2F/orders");
+        _handler.LastBody.ShouldBe("""{"durable":true,"auto_delete":false,"arguments":{"x-message-ttl":5000}}""");
+    }
+
+    [Fact]
+    public async Task DeclareExchangeAsync_Refused_ThrowsWithTheBrokersReason()
+    {
+        _handler.Respond("""{"error":"bad_request","reason":"inequivalent arg 'type' for exchange 'events'"}""", HttpStatusCode.BadRequest);
+
+
+        HttpRequestException exception = await Should.ThrowAsync<HttpRequestException>(() => _sut.DeclareExchangeAsync(
+            "events", new RabbitMqExchangeDeclaration("topic", true, false, false, new Dictionary<string, object>()), CancellationToken.None));
+
+
+        exception.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        exception.Message.ShouldBe("inequivalent arg 'type' for exchange 'events'");
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         private string _body = "[]";
@@ -69,19 +97,22 @@ public class RabbitMqManagementClientTests
 
         public HttpRequestMessage? LastRequest { get; private set; }
 
+        public string? LastBody { get; private set; }
+
         public void Respond(string body, HttpStatusCode status = HttpStatusCode.OK)
         {
             _body = body;
             _status = status;
         }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             LastRequest = request;
-            return Task.FromResult(new HttpResponseMessage(_status)
+            LastBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(_status)
             {
                 Content = new StringContent(_body, Encoding.UTF8, "application/json"),
-            });
+            };
         }
     }
 }

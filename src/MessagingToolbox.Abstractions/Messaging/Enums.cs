@@ -76,3 +76,22 @@ public enum MessagingEntityStatus
     ReceiveDisabled,
     Disabled,
 }
+
+/// <summary>How an entity option is edited and which CLR type carries its value in <see cref="EntityDefinition.Options"/>.</summary>
+public enum EntityOptionType
+{
+    /// <summary><see cref="string"/>.</summary>
+    Text,
+
+    /// <summary><see cref="bool"/>.</summary>
+    Boolean,
+
+    /// <summary><see cref="long"/>.</summary>
+    Integer,
+
+    /// <summary><see cref="System.TimeSpan"/>.</summary>
+    Duration,
+
+    /// <summary><see cref="string"/>, one of <see cref="EntityOptionDescriptor.Choices"/>.</summary>
+    Choice,
+}

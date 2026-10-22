@@ -21,6 +21,6 @@ public sealed class GetEntityDefinitionQueryHandler : IRequestHandler<GetEntityD
 
         EntityDefinition definition = await provider.GetEntityDefinitionAsync(request.EntityPath, cancellationToken);
 
-        return new EntityDefinitionDto(definition.Path, definition.Kind, definition.ParentPath, definition.Options);
+        return new EntityDefinitionDto(definition.Name, definition.Kind, definition.ParentPath, definition.Options);
     }
 }

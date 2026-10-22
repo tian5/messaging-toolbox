@@ -15,8 +15,10 @@
         }
     </h3>
 
+    @* The composer always sends to the selected entity; sending elsewhere is "Copy / move to…". *@
     <label for="composer-target">Target</label>
-    <input id="composer-target" @bind="Draft.TargetPath" />
+    <input id="composer-target" value="@TargetPath" readonly
+           title="Messages go to the selected entity — select another entity in the tree to send there." />
     @if (FanOutWarning?.Invoke(TargetPath) is { } fanOut)
     {
         <p class="hint warn">@fanOut</p>

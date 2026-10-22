@@ -1,16 +1,16 @@
 namespace MessagingToolbox.Abstractions.Messaging;
 
 /// <summary>
-/// Entity definition for management operations (Phase 2, FR-6.1/FR-6.2). The full settings
-/// surface (lock duration, TTL, duplicate detection, forwarding, …) is filled in as the
-/// management phase lands; the contract keeps room for it via <see cref="Options"/>.
+/// Entity definition for management operations (FR-6.1/FR-6.2). It names the entity rather than
+/// carrying its path: the provider builds the path, so callers never need a broker's path
+/// conventions (ADR 21).
 /// </summary>
-/// <param name="Path">Queue/topic name, or "{topic}/subscriptions/{subscription}" for subscriptions.</param>
+/// <param name="Name">The entity's own name (a subscription's name without its topic).</param>
 /// <param name="Kind">Entity kind to create or update.</param>
-/// <param name="ParentPath">Owning topic path for subscriptions; null otherwise.</param>
-/// <param name="Options">Broker-specific settings bag keyed by well-known names.</param>
+/// <param name="ParentPath">Path of the parent entity when the type has one (a subscription's topic); null otherwise.</param>
+/// <param name="Options">Settings keyed and typed as the provider's <see cref="EntityTypeDescriptor"/> describes.</param>
 public sealed record EntityDefinition(
-    string Path,
+    string Name,
     EntityKind Kind,
     string? ParentPath,
     IReadOnlyDictionary<string, object?> Options);
