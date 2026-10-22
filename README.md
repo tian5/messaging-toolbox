@@ -142,9 +142,14 @@ The first previews focus on the Azure Service Bus emulator inside Aspire. Know t
   and puts them back: they are marked redelivered, invisible to consumers meanwhile, and may
   change order. That only happens when you press Load (the UI says so); counts and live watch
   never do it. Streams are read without side effects.
-- **RabbitMQ, first preview.** Explore, peek, publish, receive-and-delete and purge. Settling
-  messages (ack/nack/reject), resubmit, and managing queues, exchanges and bindings are next.
-  Without the management plugin only queues listed in configuration are shown.
+- **RabbitMQ preview.** Explore, peek, publish, receive-and-delete, purge, settle (complete,
+  abandon, dead-letter) and copy or move messages between queues. Managing queues, exchanges and
+  bindings is next. Without the management plugin only queues listed in configuration are shown.
+- **RabbitMQ held messages and dead-lettering.** Messages received with "settle later" stay
+  invisible to consumers until you settle or release them; untouched ones are released after
+  5 minutes. Dead-lettering is a broker reject, so it is offered only on queues with a
+  dead-letter exchange (otherwise RabbitMQ would discard the message) and records the broker's
+  reason (`rejected`), not a custom one. Dead-letter queues are ordinary queues in the tree.
 - **Cloud namespaces** work with connection strings (management included) but are not the focus
   of the previews; Entra ID sign-in is on the roadmap.
 

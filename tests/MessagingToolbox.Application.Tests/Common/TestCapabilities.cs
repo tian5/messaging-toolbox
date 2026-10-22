@@ -16,6 +16,7 @@ internal static class TestCapabilities
         SupportsScheduling = true,
         SupportsTransactions = true,
         SupportsDeadLetterSubQueue = true,
+        SupportsDeadLetterReason = true,
         SupportsDeferral = true,
         SupportsSequenceNumbers = true,
         SupportsLockExpiry = true,

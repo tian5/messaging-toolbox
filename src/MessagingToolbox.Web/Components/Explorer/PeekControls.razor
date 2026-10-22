@@ -37,6 +37,14 @@
         @(EntityLoading ? "Loading…" : "Load")
     </button>
     <span class="muted">@SubQueueLabel</span>
+    @if (Workspace.ViewMode == MessageLoadMode.Settleable && Capabilities?.SupportsLockExpiry == false)
+    {
+        @* ADR 19: held deliveries never expire on their own, so the provider releases idle ones. *@
+        <p class="hint" role="note">
+            Received messages stay held — invisible to consumers — until you settle or release them.
+            Held messages left untouched are released automatically after @HeldReleaseMinutes minutes.
+        </p>
+    }
     @if (Workspace.ViewMode == MessageLoadMode.Peek && PeekMode == PeekMode.Requeue)
     {
         @* ADR 17: no read-only browse on this broker, so peek is only ever this explicit Load. *@
@@ -65,6 +73,9 @@
     /// <summary>What a peek of the selected entity costs; a requeue-peek is disclosed next to Load.</summary>
     [Parameter]
     public PeekMode PeekMode { get; set; }
+
+    // Mirrors the RabbitMQ provider's idle release (RabbitMqProvider.HeldIdleTimeout).
+    private const int HeldReleaseMinutes = 5;
 
     private bool ShowSessionFilter => Capabilities?.SupportsSessions != false
         && (RequiresSession || !string.IsNullOrEmpty(Workspace.SessionId) || Workspace.LoadedSessionIds.Count > 0);

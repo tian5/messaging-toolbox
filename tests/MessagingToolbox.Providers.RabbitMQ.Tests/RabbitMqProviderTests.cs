@@ -27,7 +27,13 @@ public class RabbitMqProviderTests
     {
         _management.ListQueuesAsync(Arg.Any<CancellationToken>()).Returns(
         [
-            new RabbitMqQueueInfo { Name = "orders", Type = "quorum", Messages = 3 },
+            new RabbitMqQueueInfo
+            {
+                Name = "orders",
+                Type = "quorum",
+                Messages = 3,
+                Arguments = new() { ["x-dead-letter-exchange"] = System.Text.Json.JsonDocument.Parse("\"orders.dlx\"").RootElement },
+            },
             new RabbitMqQueueInfo { Name = "activity", Type = "stream", MessagesReady = 2, MessagesUnacknowledged = 1 },
         ]);
         _management.ListExchangesAsync(Arg.Any<CancellationToken>()).Returns(
@@ -47,6 +53,8 @@ public class RabbitMqProviderTests
         entities.Select(entity => entity.Path).ShouldBe(["queues/orders", "queues/activity", "exchanges/events"]);
         entities[0].PeekMode.ShouldBe(PeekMode.Requeue);
         entities[0].RuntimeInfo!.ActiveMessageCount.ShouldBe(3);
+        entities[0].DeadLetterExchange.ShouldBe("orders.dlx");
+        entities[1].DeadLetterExchange.ShouldBeNull();
         entities[1].PeekMode.ShouldBe(PeekMode.NonDestructive);
         entities[1].RuntimeInfo!.ActiveMessageCount.ShouldBe(3);
         entities[2].Kind.ShouldBe(EntityKind.Exchange);
@@ -90,7 +98,7 @@ public class RabbitMqProviderTests
     }
 
     [Fact]
-    public async Task Capabilities_Always_ReportNoSubQueuesSequencesOrSettlementYet()
+    public async Task Capabilities_Always_ReportSettlementWithoutSubQueuesSequencesOrExpiry()
     {
         await using RabbitMqProvider sut = CreateProvider();
 
@@ -99,7 +107,9 @@ public class RabbitMqProviderTests
 
 
         capabilities.CanPeek.ShouldBeTrue();
-        capabilities.CanReceiveSettle.ShouldBeFalse();
+        capabilities.CanReceiveSettle.ShouldBeTrue();
+        capabilities.SupportsLockExpiry.ShouldBeFalse();
+        capabilities.SupportsDeadLetterReason.ShouldBeFalse();
         capabilities.SupportsDeadLetterSubQueue.ShouldBeFalse();
         capabilities.SupportsSequenceNumbers.ShouldBeFalse();
         capabilities.SupportsDeferral.ShouldBeFalse();
@@ -159,6 +169,48 @@ public class RabbitMqProviderTests
 
 
         _management.Received(1).Dispose();
+    }
+
+    [Fact]
+    public async Task SettleAsync_DeadLetterWithoutDeadLetterExchange_ThrowsBeforeTouchingDeliveries()
+    {
+        _management.GetQueueAsync("orders", Arg.Any<CancellationToken>()).Returns(new RabbitMqQueueInfo { Name = "orders", Type = "classic" });
+        await using RabbitMqProvider sut = CreateProvider();
+        await sut.ProbeCapabilitiesAsync(CancellationToken.None);
+
+
+        NotSupportedByProviderException exception = await Should.ThrowAsync<NotSupportedByProviderException>(() => sut.SettleAsync(
+            new SettleRequest("queues/orders", MessageSubQueue.Active, SettlementOperation.DeadLetter, ["token"], null, null),
+            CancellationToken.None));
+
+
+        exception.Message.ShouldContain("dead-letter exchange");
+    }
+
+    [Fact]
+    public async Task PrepareResubmitAsync_DeadLetteredMessage_ClonesWithoutBrokerPropertiesAndMarksReplay()
+    {
+        await using RabbitMqProvider sut = CreateProvider();
+        ToolboxMessage original = new()
+        {
+            Body = "{}"u8.ToArray(),
+            MessageId = "m-1",
+            RoutingKey = "orders",
+            ApplicationProperties = new Dictionary<string, object?> { ["tenant"] = "contoso" },
+            BrokerProperties = new Dictionary<string, object?> { ["x-death"] = "[…]" },
+            LockToken = "token",
+        };
+
+
+        ToolboxMessage clone = await sut.PrepareResubmitAsync("queues/orders.dlq", MessageSubQueue.Active, original, ResubmitOverrides.Empty, CancellationToken.None);
+
+
+        clone.MessageId.ShouldBe("m-1");
+        clone.RoutingKey.ShouldBe("orders");
+        clone.LockToken.ShouldBeNull();
+        clone.BrokerProperties.ShouldBeEmpty();
+        clone.ApplicationProperties["tenant"].ShouldBe("contoso");
+        clone.ApplicationProperties["toolbox-replayed-from"].ShouldBe("m-1");
     }
 
     private static async Task<List<MessagingEntity>> ListAsync(RabbitMqProvider sut)

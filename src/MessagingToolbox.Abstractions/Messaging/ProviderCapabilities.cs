@@ -33,6 +33,12 @@ public sealed record ProviderCapabilities
     /// </summary>
     public required bool SupportsDeadLetterSubQueue { get; init; }
 
+    /// <summary>
+    /// Dead-lettering can carry a reason and description. Without it (RabbitMQ: a native reject
+    /// records only <c>reason=rejected</c>), the UI asks for none.
+    /// </summary>
+    public required bool SupportsDeadLetterReason { get; init; }
+
     /// <summary>Defer as a settlement, and receiving deferred messages back by sequence number (ADR 13).</summary>
     public required bool SupportsDeferral { get; init; }
 

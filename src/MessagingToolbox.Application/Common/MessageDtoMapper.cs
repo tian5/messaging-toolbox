@@ -34,6 +34,7 @@ public static class MessageDtoMapper
             ExpiresAt = message.ExpiresAt,
             DeadLetterReason = message.DeadLetterReason,
             DeadLetterErrorDescription = message.DeadLetterErrorDescription,
+            DeadLetterSourcePath = message.DeadLetterSourcePath,
             LockToken = message.LockToken,
             LockedUntil = message.LockedUntil,
             ApplicationProperties = message.ApplicationProperties,

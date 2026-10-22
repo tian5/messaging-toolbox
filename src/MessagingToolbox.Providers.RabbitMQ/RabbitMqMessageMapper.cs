@@ -27,18 +27,16 @@ internal static class RabbitMqMessageMapper
         "x-death", "x-first-death-", "x-last-death-", DeliveryCountHeader, "x-acquired-count", "x-stream-",
     ];
 
-    /// <param name="position">
-    /// 1-based position in the returned batch. RabbitMQ has no sequence numbers, so it stands in
-    /// for one: display and grid selection only, never an address (SupportsSequenceNumbers is false).
-    /// Streams report their offset instead.
-    /// </param>
+    /// <summary>
+    /// RabbitMQ has no sequence numbers; stream messages report their offset as one, every other
+    /// message none (the grid keys rows by load position instead).
+    /// </summary>
     public static ToolboxMessage ToToolboxMessage(
         IReadOnlyBasicProperties properties,
         ReadOnlyMemory<byte> body,
         string exchange,
         string routingKey,
-        bool redelivered,
-        long position)
+        bool redelivered)
     {
         Dictionary<string, object?> applicationProperties = new(StringComparer.Ordinal);
         Dictionary<string, object?> brokerProperties = new(StringComparer.Ordinal)
@@ -75,13 +73,14 @@ internal static class RabbitMqMessageMapper
             EnqueuedTime = properties.IsTimestampPresent()
                 ? DateTimeOffset.FromUnixTimeSeconds(properties.Timestamp.UnixTime)
                 : null,
-            SequenceNumber = streamOffset ?? position,
+            SequenceNumber = streamOffset,
             State = MessageState.Active,
             DeliveryCount = AsLong(Header(DeliveryCountHeader)) is { } deliveryCount
                 ? (int)Math.Min(deliveryCount, int.MaxValue)
                 : redelivered ? 1 : 0,
             DeadLetterReason = Header(FirstDeathReasonHeader) as string,
             DeadLetterErrorDescription = DeathOrigin(Header(FirstDeathQueueHeader) as string, Header(FirstDeathExchangeHeader) as string),
+            DeadLetterSourcePath = Header(FirstDeathQueueHeader) is string sourceQueue ? RabbitMqEntityPath.ForQueue(sourceQueue) : null,
             ApplicationProperties = applicationProperties,
             BrokerProperties = brokerProperties,
         };

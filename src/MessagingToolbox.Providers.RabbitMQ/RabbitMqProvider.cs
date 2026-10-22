@@ -24,6 +24,9 @@ public sealed class RabbitMqProvider : IMessagingProvider
     private const int MaxMessagesPerCall = 5000;
     private const string ClientName = "MessagingToolbox";
 
+    // Marks a resubmitted clone with the original's id, like the Azure Service Bus provider.
+    private const string ReplayFromProperty = "toolbox-replayed-from";
+
     // Management probe: success is final, a failure is retried after the interval on the next use,
     // so discovery appears once a slow-starting broker is up (same pattern as the ASB emulator).
     internal static readonly TimeSpan ManagementReprobeInterval = TimeSpan.FromSeconds(15);
@@ -45,6 +48,8 @@ public sealed class RabbitMqProvider : IMessagingProvider
     // part of the queue and both report an incomplete view.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _queueGates = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _streamQueues = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string?> _deadLetterExchanges = new(StringComparer.Ordinal);
+    private readonly HeldDeliveries _held;
 
     private readonly Lock _probeLock = new();
     private ProviderCapabilities _capabilities = RabbitMqCapabilities.Default;
@@ -75,6 +80,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
         _configuredQueues = configuredQueues;
         _logger = logger;
         _timeProvider = timeProvider;
+        _held = new HeldDeliveries(timeProvider, logger);
     }
 
     public ProviderKind Kind => ProviderKind.RabbitMQ;
@@ -161,7 +167,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
             while (received.Count < maxMessages
                 && await channel.BasicGetAsync(queue, autoAck: true, cancellationToken) is { } result)
             {
-                received.Add(ToToolboxMessage(result, received.Count + 1));
+                received.Add(ToToolboxMessage(result));
             }
 
             return (IReadOnlyList<ToolboxMessage>)received;
@@ -228,7 +234,8 @@ public sealed class RabbitMqProvider : IMessagingProvider
         }, cancellationToken);
     }
 
-    public Task<IReadOnlyList<ToolboxMessage>> ReceiveForSettlementAsync(
+    // Held deliveries don't expire, so lock renewal has nothing to do; RabbitMQ has no sessions.
+    public async Task<IReadOnlyList<ToolboxMessage>> ReceiveForSettlementAsync(
         string entityPath,
         MessageSubQueue subQueue,
         int maxMessages,
@@ -236,17 +243,57 @@ public sealed class RabbitMqProvider : IMessagingProvider
         CancellationToken cancellationToken,
         TimeSpan? lockRenewalDuration = null,
         string? sessionId = null)
-        => throw NotYetSupported("Receiving for settlement");
+    {
+        using Activity? activity = Telemetry.Source.StartActivity("rabbitmq.messages.receive.settleable");
+
+        string queue = RequireActiveQueue(entityPath, subQueue);
+        int max = Math.Clamp(maxMessages, 1, MaxMessagesPerCall);
+
+        return await OnQueueAsync(queue, entityPath, async () =>
+        {
+            await RequireNonStreamAsync(queue, "settled", cancellationToken);
+
+            IReadOnlyList<(string LockToken, BasicGetResult Delivery)> held = await _held.ReceiveAsync(
+                queue, token => CreateChannelAsync(null, token), max, cancellationToken);
+
+            return (IReadOnlyList<ToolboxMessage>)held
+                .Select(entry => ToToolboxMessage(entry.Delivery) with { LockToken = entry.LockToken })
+                .ToList();
+        }, cancellationToken);
+    }
 
     public Task<IReadOnlyList<ToolboxMessage>> ReceiveDeferredForSettlementAsync(ReceiveDeferredRequest request, CancellationToken cancellationToken)
         => throw new NotSupportedByProviderException("RabbitMQ has no deferred messages.");
 
+    // Held deliveries never expire: a still-held one reports no deadline (MaxValue).
     public Task<IReadOnlyDictionary<string, DateTimeOffset>> GetHeldLockStatesAsync(
         string entityPath, MessageSubQueue subQueue, IReadOnlyList<string> lockTokens, CancellationToken cancellationToken)
-        => throw NotYetSupported("Settlement");
+        => Task.FromResult<IReadOnlyDictionary<string, DateTimeOffset>>(
+            _held.StillHeld(lockTokens).ToDictionary(token => token, _ => DateTimeOffset.MaxValue, StringComparer.Ordinal));
 
-    public Task<IReadOnlyList<string>> SettleAsync(SettleRequest request, CancellationToken cancellationToken)
-        => throw NotYetSupported("Settlement");
+    public async Task<IReadOnlyList<string>> SettleAsync(SettleRequest request, CancellationToken cancellationToken)
+    {
+        using Activity? activity = Telemetry.Source.StartActivity("rabbitmq.messages.settle");
+
+        string queue = RequireActiveQueue(request.EntityPath, request.SubQueue);
+
+        // Dead-lettering is a reject; without a dead-letter exchange the broker discards the
+        // message, so the provider refuses rather than delete it silently (ADR 19).
+        if (request.Operation == SettlementOperation.DeadLetter && await DeadLetterExchangeOfAsync(queue, cancellationToken) is null)
+        {
+            throw new NotSupportedByProviderException(
+                $"'{queue}' has no dead-letter exchange (x-dead-letter-exchange or a policy), so a reject would discard the message. Configure one first.");
+        }
+
+        try
+        {
+            return await _held.SettleAsync(request.LockTokens, request.Operation, cancellationToken);
+        }
+        catch (Exception exception) when (RabbitMqExceptionTranslator.CanTranslate(exception))
+        {
+            throw RabbitMqExceptionTranslator.Translate(exception, request.EntityPath);
+        }
+    }
 
     public Task<IReadOnlyList<long>> SettleBySequenceNumbersAsync(SettleBySequenceRequest request, CancellationToken cancellationToken)
         => throw new NotSupportedByProviderException("RabbitMQ has no sequence numbers; receive the messages for settlement instead.");
@@ -263,13 +310,33 @@ public sealed class RabbitMqProvider : IMessagingProvider
     public Task<EntityDefinition> GetEntityDefinitionAsync(string entityPath, CancellationToken cancellationToken)
         => throw NotYetSupported("Entity management");
 
+    // Always a clone from the typed and application properties; broker properties (death history,
+    // delivery counts) never travel along. Removing the original is a separate, held-delivery ack.
     public Task<ToolboxMessage> PrepareResubmitAsync(
         string sourceEntityPath,
         MessageSubQueue sourceSubQueue,
         ToolboxMessage original,
         ResubmitOverrides overrides,
         CancellationToken cancellationToken)
-        => throw NotYetSupported("Resubmit");
+    {
+        Dictionary<string, object?> properties = new(overrides.ApplicationProperties ?? original.ApplicationProperties, StringComparer.Ordinal)
+        {
+            [ReplayFromProperty] = original.MessageId ?? "unknown",
+        };
+
+        return Task.FromResult(new ToolboxMessage
+        {
+            Body = overrides.Body is null ? original.Body : System.Text.Encoding.UTF8.GetBytes(overrides.Body),
+            MessageId = overrides.MessageId ?? original.MessageId ?? Guid.NewGuid().ToString("N"),
+            CorrelationId = overrides.CorrelationId ?? original.CorrelationId,
+            ContentType = overrides.ContentType ?? original.ContentType,
+            Subject = overrides.Subject ?? original.Subject,
+            ReplyTo = overrides.ReplyTo ?? original.ReplyTo,
+            TimeToLive = overrides.TimeToLive ?? original.TimeToLive,
+            RoutingKey = original.RoutingKey,
+            ApplicationProperties = properties,
+        });
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -279,6 +346,9 @@ public sealed class RabbitMqProvider : IMessagingProvider
         }
 
         await _disposalTokenSource.CancelAsync();
+
+        // Before the connection closes: held deliveries are nacked, not dropped with the channel.
+        await _held.DisposeAsync();
 
         if (_connection is { } connection)
         {
@@ -339,6 +409,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
         foreach (RabbitMqQueueInfo queue in queues)
         {
             _streamQueues[queue.Name] = queue.IsStream;
+            _deadLetterExchanges[queue.Name] = queue.DeadLetterExchange;
             entities.Add(new MessagingEntity
             {
                 Path = RabbitMqEntityPath.ForQueue(queue.Name),
@@ -346,6 +417,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 Kind = EntityKind.Queue,
                 Status = queue.State is null or "running" ? MessagingEntityStatus.Active : MessagingEntityStatus.Unknown,
                 PeekMode = queue.IsStream ? PeekMode.NonDestructive : PeekMode.Requeue,
+                DeadLetterExchange = queue.DeadLetterExchange,
                 RuntimeInfo = ToRuntimeInfo(queue, ready),
             });
         }
@@ -474,7 +546,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 && await channel.BasicGetAsync(queue, autoAck: false, cancellationToken) is { } result)
             {
                 lastDeliveryTag = result.DeliveryTag;
-                messages.Add(ToToolboxMessage(result, messages.Count + 1));
+                messages.Add(ToToolboxMessage(result));
             }
         }
         finally
@@ -519,7 +591,7 @@ public sealed class RabbitMqProvider : IMessagingProvider
                 if (messages.Count < maxMessages)
                 {
                     messages.Add(RabbitMqMessageMapper.ToToolboxMessage(
-                        delivery.BasicProperties, delivery.Body, delivery.Exchange, delivery.RoutingKey, delivery.Redelivered, messages.Count + 1));
+                        delivery.BasicProperties, delivery.Body, delivery.Exchange, delivery.RoutingKey, delivery.Redelivered));
                 }
 
                 if (messages.Count >= maxMessages)
@@ -569,9 +641,9 @@ public sealed class RabbitMqProvider : IMessagingProvider
         }
     }
 
-    private static ToolboxMessage ToToolboxMessage(BasicGetResult result, long position)
+    private static ToolboxMessage ToToolboxMessage(BasicGetResult result)
         => RabbitMqMessageMapper.ToToolboxMessage(
-            result.BasicProperties, result.Body, result.Exchange, result.RoutingKey, result.Redelivered, position);
+            result.BasicProperties, result.Body, result.Exchange, result.RoutingKey, result.Redelivered);
 
     private async Task<T> OnQueueAsync<T>(string queue, string entityPath, Func<Task<T>> operation, CancellationToken cancellationToken)
     {
@@ -597,6 +669,24 @@ public sealed class RabbitMqProvider : IMessagingProvider
         {
             throw new NotSupportedByProviderException($"'{queue}' is a stream — an append-only log whose messages can't be {operation}.");
         }
+    }
+
+    private async Task<string?> DeadLetterExchangeOfAsync(string queue, CancellationToken cancellationToken)
+    {
+        if (_deadLetterExchanges.TryGetValue(queue, out string? exchange))
+        {
+            return exchange;
+        }
+
+        // Without the management API the queue's arguments and policies can't be read.
+        if (!_managementAvailable)
+        {
+            return null;
+        }
+
+        exchange = (await _management.GetQueueAsync(queue, cancellationToken)).DeadLetterExchange;
+        _deadLetterExchanges[queue] = exchange;
+        return exchange;
     }
 
     private async Task<bool> IsStreamAsync(string queue, CancellationToken cancellationToken)

@@ -10,7 +10,7 @@ namespace MessagingToolbox.Providers.RabbitMQ.Management;
 /// </summary>
 public sealed class RabbitMqManagementClient : IRabbitMqManagementClient
 {
-    private const string QueueColumns = "name,type,messages,messages_ready,messages_unacknowledged,message_bytes,state,arguments";
+    private const string QueueColumns = "name,type,messages,messages_ready,messages_unacknowledged,message_bytes,state,arguments,effective_policy_definition";
     private const string ExchangeColumns = "name,type,internal";
 
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);

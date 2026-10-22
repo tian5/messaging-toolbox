@@ -7,9 +7,11 @@ public sealed class RequeueMessagesCommandValidator : AbstractValidator<RequeueM
 {
     public RequeueMessagesCommandValidator()
     {
+        // Which sources may be requeued depends on the broker (dead-letter sub-queue or not), so
+        // the handler checks that against the provider's capabilities.
         RuleFor(command => command.SourceSubQueue)
-            .Must(subQueue => subQueue is MessageSubQueue.DeadLetter or MessageSubQueue.TransferDeadLetter)
-            .WithMessage("Only dead-lettered messages can be requeued.");
+            .NotEqual(MessageSubQueue.Scheduled)
+            .WithMessage("Scheduled messages can't be requeued.");
 
         RuleFor(command => command.TargetPath)
             .NotEmpty()

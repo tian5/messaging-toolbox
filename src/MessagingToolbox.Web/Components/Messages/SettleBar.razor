@@ -9,9 +9,12 @@
     }
     @if (CanDeadLetter)
     {
-        <input class="reason" placeholder="dead-letter reason" @bind="_reason" disabled="@Disabled" />
-        <input class="reason" placeholder="description (optional)" @bind="_description" disabled="@Disabled" />
-        <button type="button" class="danger" disabled="@Disabled" @onclick="DeadLetterAsync">Dead-letter</button>
+        @if (CanGiveReason)
+        {
+            <input class="reason" placeholder="dead-letter reason" @bind="_reason" disabled="@Disabled" />
+            <input class="reason" placeholder="description (optional)" @bind="_description" disabled="@Disabled" />
+        }
+        <button type="button" class="danger" disabled="@Disabled" @onclick="DeadLetterAsync" title="@DeadLetterTitle">Dead-letter</button>
         @if (_reasonError)
         {
             <span class="error-inline">A reason is required to dead-letter.</span>
@@ -31,6 +34,14 @@
     [Parameter]
     public bool CanDefer { get; set; } = true;
 
+    /// <summary>The broker records a dead-letter reason; without it the message gets the broker's own (e.g. RabbitMQ: rejected).</summary>
+    [Parameter]
+    public bool CanGiveReason { get; set; } = true;
+
+    /// <summary>Where dead-lettered messages go, shown as the button's tooltip.</summary>
+    [Parameter]
+    public string? DeadLetterTitle { get; set; }
+
     /// <summary>True while a long-running operation holds the entity lock — settle actions stay disabled.</summary>
     [Parameter]
     public bool Disabled { get; set; }
@@ -44,7 +55,7 @@
 
     private async Task DeadLetterAsync()
     {
-        if (string.IsNullOrWhiteSpace(_reason))
+        if (CanGiveReason && string.IsNullOrWhiteSpace(_reason))
         {
             _reasonError = true;
             return;

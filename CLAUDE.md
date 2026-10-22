@@ -54,6 +54,10 @@ win. Then fix the docs.
   from live watch or count sampling (ADR 17). RabbitMQ classic/quorum queues are such entities:
   peek gets without auto-ack and **nacks with requeue, never rejects** (a reject counts toward the
   quorum `delivery-limit`), and peeks of one queue are serialized (ADR 18).
+- **RabbitMQ held deliveries** (settle-later) live on one channel per queue in `HeldDeliveries`.
+  Never close a held channel without nacking its deliveries with requeue first, and never
+  dead-letter (reject) on a queue without a dead-letter exchange: the broker would discard the
+  message (ADR 19).
   This also holds for session-enabled entities: a plain receiver peeks across sessions, so
   never accept a session to browse (ADR 12).
 - **Sessions are for receives only.** Receives on a session entity's active sub-queue go

@@ -190,7 +190,7 @@ public class RequeueMessagesCommandHandlerTests
     [Fact]
     public async Task Handle_RemoveOriginalsWithoutLockTokensOrSequenceNumbers_ThrowsBeforeSendingClones()
     {
-        _provider.Capabilities.Returns(TestCapabilities.Full with { SupportsSequenceNumbers = false });
+        _provider.Capabilities.Returns(TestCapabilities.Full with { SupportsSequenceNumbers = false, SupportsDeadLetterSubQueue = false });
         IReadOnlyList<MessageDto> messages = [CreateMessage("msg-1", 11)];
 
 
@@ -200,5 +200,40 @@ public class RequeueMessagesCommandHandlerTests
 
 
         await _provider.DidNotReceiveWithAnyArgs().SendAsync(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_ActiveSourceOnBrokerWithDeadLetterSubQueue_ThrowsBeforeSending()
+    {
+        IReadOnlyList<MessageDto> messages = [CreateMessage("msg-1", 11)];
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => _sut.Handle(
+            new RequeueMessagesCommand(ConnectionId, "orders", MessageSubQueue.Active, "retry-queue", messages),
+            CancellationToken.None).AsTask());
+
+
+        await _provider.DidNotReceiveWithAnyArgs().SendAsync(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_ActiveSourceWithoutDeadLetterSubQueue_SendsClonesAndRemovesOriginalsByToken()
+    {
+        _provider.Capabilities.Returns(TestCapabilities.Full with { SupportsDeadLetterSubQueue = false, SupportsSequenceNumbers = false });
+        _provider.PrepareResubmitAsync(Arg.Any<string>(), Arg.Any<MessageSubQueue>(), Arg.Any<ToolboxMessage>(), Arg.Any<ResubmitOverrides>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.Arg<ToolboxMessage>());
+        _provider.SettleAsync(Arg.Any<SettleRequest>(), Arg.Any<CancellationToken>()).Returns(["token-1"]);
+        IReadOnlyList<MessageDto> messages = [CreateMessage("msg-1", 11) with { SequenceNumber = null }];
+
+
+        await _sut.Handle(
+            new RequeueMessagesCommand(ConnectionId, "queues/orders.dlq", MessageSubQueue.Active, "queues/billing", messages, ["token-1"], RemoveOriginals: true),
+            CancellationToken.None);
+
+
+        await _provider.Received(1).SendAsync("queues/billing", Arg.Is<IReadOnlyList<ToolboxMessage>>(sent => sent.Count == 1), Arg.Any<CancellationToken>());
+        await _provider.Received(1).SettleAsync(
+            Arg.Is<SettleRequest>(request => request.Operation == SettlementOperation.Complete && request.LockTokens.Single() == "token-1"),
+            Arg.Any<CancellationToken>());
     }
 }

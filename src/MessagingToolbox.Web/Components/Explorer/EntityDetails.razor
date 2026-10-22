@@ -30,11 +30,22 @@
                     }
                 </dd>
             </div>
-            <div><dt>Scheduled</dt><dd>@info.ScheduledMessageCount</dd></div>
-            <div><dt>Dead-letter</dt><dd>@info.DeadLetterMessageCount</dd></div>
-            <div><dt>Transfer DLQ</dt><dd>@info.TransferDeadLetterMessageCount</dd></div>
+            @if (Capabilities?.SupportsScheduling != false)
+            {
+                <div><dt>Scheduled</dt><dd>@info.ScheduledMessageCount</dd></div>
+            }
+            @if (Capabilities?.SupportsDeadLetterSubQueue != false)
+            {
+                <div><dt>Dead-letter</dt><dd>@info.DeadLetterMessageCount</dd></div>
+                <div><dt>Transfer DLQ</dt><dd>@info.TransferDeadLetterMessageCount</dd></div>
+            }
             <div><dt>Size</dt><dd>@FormatSize(info.SizeInBytes)</dd></div>
         </dl>
+    }
+    @if (Node.DeadLetterExchange is { } exchange)
+    {
+        @* Routing-based dead-lettering (RabbitMQ): the queue's own setting; where it lands depends on the exchange's bindings. *@
+        <p class="muted">Dead-letters via exchange <strong>@(exchange.Length == 0 ? "(default)" : exchange)</strong></p>
     }
 </div>
 
@@ -48,6 +59,10 @@
 
     [Parameter]
     public bool Watched { get; set; }
+
+    /// <summary>The connection's capabilities; counts the broker doesn't have are hidden. Null while unknown.</summary>
+    [Parameter]
+    public ProviderCapabilities? Capabilities { get; set; }
 
     [Parameter]
     public EventCallback ToggleWatch { get; set; }

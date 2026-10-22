@@ -27,7 +27,8 @@ public sealed class ConnectionWorkspace
     /// <summary>Loaded messages survive navigating away and back — switching nodes must never discard a fetch.</summary>
     public Dictionary<string, MessageViewState> MessageStates { get; } = [];
 
-    public HashSet<long> Selection { get; set; } = [];
+    /// <summary>Row keys (<see cref="MessageDto.RowKey"/>) of the selected messages.</summary>
+    public HashSet<string> Selection { get; set; } = [];
 
     public string? PeekError { get; set; }
 
@@ -77,11 +78,10 @@ public sealed class ConnectionWorkspace
     /// when the node is still selected — a fetch may complete after the user moved on, and its
     /// messages must never land on another entity.
     /// </summary>
-    public void ApplyLoadedMessages(EntityTreeNodeDto node, IReadOnlyList<MessageDto> messages, MessageLoadMode mode, bool selectAll = false)
+    public void ApplyLoadedMessages(EntityTreeNodeDto node, IReadOnlyList<MessageDto> loaded, MessageLoadMode mode, bool selectAll = false)
     {
-        HashSet<long> selection = selectAll
-            ? [.. messages.Where(message => message.SequenceNumber is not null).Select(message => message.SequenceNumber!.Value)]
-            : [];
+        IReadOnlyList<MessageDto> messages = [.. loaded.Select((message, index) => message with { RowKey = RowKeyOf(message, index) })];
+        HashSet<string> selection = selectAll ? [.. messages.Select(message => message.RowKey)] : [];
         MessageViewState state = new(messages, null, selection, null, mode);
         MessageStates[EntityTreeFiltering.NodeKey(node)] = state;
 
@@ -119,7 +119,8 @@ public sealed class ConnectionWorkspace
                     SelectedMessage = null;
                 }
 
-                Selection.RemoveWhere(sequence => !Messages.Any(message => message.SequenceNumber == sequence));
+                HashSet<string> remaining = [.. Messages.Select(message => message.RowKey)];
+                Selection.RemoveWhere(key => !remaining.Contains(key));
             }
 
             IsStale = true;
@@ -231,37 +232,40 @@ public sealed class ConnectionWorkspace
     /// the count and the settle actions without re-running the same LINQ query. Only messages
     /// received for settlement carry tokens.
     /// </summary>
-    public IReadOnlyList<string> SelectedLockTokens
-    {
-        get
-        {
-            if (Messages is null || Selection.Count == 0)
-            {
-                return [];
-            }
+    public IReadOnlyList<string> SelectedLockTokens => SelectedMessages
+        .Where(message => message.LockToken is not null && message.LockToken != Guid.Empty.ToString())
+        .Select(message => message.LockToken!)
+        .ToList();
 
-            return Messages
-                .Where(message => message.SequenceNumber is not null
-                    && Selection.Contains(message.SequenceNumber.Value)
-                    && message.LockToken is not null
-                    && message.LockToken != Guid.Empty.ToString())
-                .Select(message => message.LockToken!)
-                .ToList();
-        }
-    }
+    /// <summary>The selected messages, in load order.</summary>
+    public IReadOnlyList<MessageDto> SelectedMessages => Messages is null || Selection.Count == 0
+        ? []
+        : Messages.Where(message => Selection.Contains(message.RowKey)).ToList();
+
+    /// <summary>Sequence numbers of the selected messages, for brokers that have them (scheduled cancels, audit).</summary>
+    public IReadOnlyList<long> SelectedSequenceNumbers => SelectedMessages
+        .Where(message => message.SequenceNumber is not null)
+        .Select(message => message.SequenceNumber!.Value)
+        .ToList();
 
     /// <summary>
     /// Selected deferred messages that aren't held yet — the ones a receive by sequence number can
     /// get back. Received ones carry a lock token and settle like any other held message.
     /// </summary>
-    public IReadOnlyList<MessageDto> SelectedDeferredMessages => Messages is null || Selection.Count == 0
-        ? []
-        : Messages
-            .Where(message => message.State == MessageState.Deferred
-                && message.LockToken is null
-                && message.SequenceNumber is not null
-                && Selection.Contains(message.SequenceNumber.Value))
-            .ToList();
+    public IReadOnlyList<MessageDto> SelectedDeferredMessages => SelectedMessages
+        .Where(message => message.State == MessageState.Deferred
+            && message.LockToken is null
+            && message.SequenceNumber is not null)
+        .ToList();
+
+    // Unique within one load: the sequence number where the broker has one, else the lock token,
+    // else the position in the load.
+    private static string RowKeyOf(MessageDto message, int index) => message switch
+    {
+        { SequenceNumber: { } sequence } => $"s:{sequence}",
+        { LockToken: { } token } when token != Guid.Empty.ToString() => $"l:{token}",
+        _ => $"r:{index}",
+    };
 
     /// <summary>
     /// Put the message into repair mode against the currently selected node. <see cref="EditMessage"/>
@@ -358,7 +362,7 @@ public enum MessageLoadMode
 public sealed record MessageViewState(
     IReadOnlyList<MessageDto> Messages,
     MessageDto? SelectedMessage,
-    HashSet<long> Selection,
+    HashSet<string> Selection,
     string? PeekError,
     MessageLoadMode LoadMode,
     bool IsStale = false);

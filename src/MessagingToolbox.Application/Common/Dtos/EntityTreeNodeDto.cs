@@ -28,6 +28,9 @@ public sealed record EntityTreeNodeDto
     /// <summary>What a peek of this entity costs; set on entity and sub-queue nodes alike.</summary>
     public PeekMode PeekMode { get; init; } = PeekMode.NonDestructive;
 
+    /// <summary>The exchange the entity dead-letters into (routing-based brokers); null when it has none.</summary>
+    public string? DeadLetterExchange { get; init; }
+
     public EntityRuntimeInfoDto? RuntimeInfo { get; init; }
 
     public IReadOnlyList<EntityTreeNodeDto> Children { get; init; } = [];

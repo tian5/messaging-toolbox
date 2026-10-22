@@ -19,19 +19,19 @@ public class RequeueMessagesCommandValidatorTests
 
     private readonly RequeueMessagesCommandValidator _sut = new();
 
-    [Theory]
-    [InlineData(MessageSubQueue.Active)]
-    [InlineData(MessageSubQueue.Scheduled)]
-    public void Validate_NonDeadLetterSubQueue_HasValidationErrorForSourceSubQueue(MessageSubQueue subQueue)
+    [Fact]
+    public void Validate_ScheduledSubQueue_HasValidationErrorForSourceSubQueue()
     {
-        _sut.TestValidate(new RequeueMessagesCommand(Guid.NewGuid(), "orders/$deadletter", subQueue, "retry-queue", [Message]))
+        _sut.TestValidate(new RequeueMessagesCommand(Guid.NewGuid(), "orders", MessageSubQueue.Scheduled, "retry-queue", [Message]))
             .ShouldHaveValidationErrorFor(command => command.SourceSubQueue);
     }
 
+    // Whether an active queue may be a source depends on the broker; the handler decides (ADR 19).
     [Theory]
+    [InlineData(MessageSubQueue.Active)]
     [InlineData(MessageSubQueue.DeadLetter)]
     [InlineData(MessageSubQueue.TransferDeadLetter)]
-    public void Validate_DeadLetterSubQueue_DoesNotHaveValidationErrorForSourceSubQueue(MessageSubQueue subQueue)
+    public void Validate_NonScheduledSubQueue_DoesNotHaveValidationErrorForSourceSubQueue(MessageSubQueue subQueue)
     {
         _sut.TestValidate(new RequeueMessagesCommand(Guid.NewGuid(), "orders/$deadletter", subQueue, "retry-queue", [Message]))
             .ShouldNotHaveValidationErrorFor(command => command.SourceSubQueue);

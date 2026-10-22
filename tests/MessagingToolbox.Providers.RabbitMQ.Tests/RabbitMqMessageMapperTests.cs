@@ -37,7 +37,7 @@ public class RabbitMqMessageMapperTests
 
 
         ToolboxMessage message = RabbitMqMessageMapper.ToToolboxMessage(
-            properties, "{}"u8.ToArray(), "orders.dlx", "orders", redelivered: true, position: 4);
+            properties, "{}"u8.ToArray(), "orders.dlx", "orders", redelivered: true);
 
 
         message.MessageId.ShouldBe("m-1");
@@ -45,7 +45,8 @@ public class RabbitMqMessageMapperTests
         message.TimeToLive.ShouldBe(TimeSpan.FromMinutes(1));
         message.EnqueuedTime.ShouldBe(Now);
         message.RoutingKey.ShouldBe("orders");
-        message.SequenceNumber.ShouldBe(4);
+        message.SequenceNumber.ShouldBeNull();
+        message.DeadLetterSourcePath.ShouldBe("queues/orders");
         message.DeliveryCount.ShouldBe(2);
         message.DeadLetterReason.ShouldBe("rejected");
         message.DeadLetterErrorDescription!.ShouldContain("orders");
@@ -63,7 +64,7 @@ public class RabbitMqMessageMapperTests
         BasicProperties properties = new() { Headers = new Dictionary<string, object?> { ["x-stream-offset"] = 41L } };
 
 
-        ToolboxMessage message = RabbitMqMessageMapper.ToToolboxMessage(properties, "x"u8.ToArray(), string.Empty, "activity", false, 1);
+        ToolboxMessage message = RabbitMqMessageMapper.ToToolboxMessage(properties, "x"u8.ToArray(), string.Empty, "activity", false);
 
 
         message.SequenceNumber.ShouldBe(41);

@@ -87,6 +87,7 @@ public sealed class GetEntityTreeQueryHandler : IRequestHandler<GetEntityTreeQue
         Status = entity.Status,
         RequiresSession = entity.RequiresSession,
         PeekMode = entity.PeekMode,
+        DeadLetterExchange = entity.DeadLetterExchange,
         RuntimeInfo = ToRuntimeInfo(entity.RuntimeInfo),
     };
 
@@ -98,6 +99,7 @@ public sealed class GetEntityTreeQueryHandler : IRequestHandler<GetEntityTreeQue
         Status = entity.Status,
         RequiresSession = entity.RequiresSession,
         PeekMode = entity.PeekMode,
+        DeadLetterExchange = entity.DeadLetterExchange,
         RuntimeInfo = ToRuntimeInfo(entity.RuntimeInfo),
         Children = children,
     };

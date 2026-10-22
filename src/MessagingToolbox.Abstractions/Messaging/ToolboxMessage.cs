@@ -57,6 +57,12 @@ public sealed record ToolboxMessage
     public string? DeadLetterErrorDescription { get; init; }
 
     /// <summary>
+    /// Path of the entity a dead-lettered message came from, when the broker records it (RabbitMQ:
+    /// <c>x-first-death-queue</c>); the natural target for a resubmit.
+    /// </summary>
+    public string? DeadLetterSourcePath { get; init; }
+
+    /// <summary>
     /// Read-only, broker-specific system properties for display (e.g. exchange, redelivered flag,
     /// death history). Never sent: a resubmit or clone starts from the typed properties.
     /// </summary>

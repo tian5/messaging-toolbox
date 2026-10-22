@@ -25,10 +25,10 @@
         <button type="button" class="danger" @onclick="DeadLetter" disabled="@(Workspace.Selection.Count == 0 || EntityBusy)"
                 title="Move the selected messages to the dead-letter queue (FR-5.1)">To DLQ (@Workspace.Selection.Count)</button>
     }
-    @if (IsDeadLetterNode)
+    @if (CanResubmit)
     {
         <button type="button" @onclick="Requeue" disabled="@(Workspace.Selection.Count == 0 || EntityBusy)"
-                title="Requeue the selected messages into a queue or topic of your choice (FR-4.6)">Requeue… (@Workspace.Selection.Count)</button>
+                title="Send copies of the selected messages to a queue, topic or exchange of your choice (FR-4.6)">@ResubmitLabel (@Workspace.Selection.Count)</button>
     }
     <button type="button" class="danger" @onclick="Delete" disabled="@(Workspace.Selection.Count == 0 || IsReceiveAndDeleteLoaded || EntityBusy)"
             title="@(IsReceiveAndDeleteLoaded ? "Messages were already deleted by receive & delete" : "Permanently delete the selected messages (FR-5.3)")">Delete (@Workspace.Selection.Count)</button>
@@ -44,8 +44,12 @@
     [Parameter]
     public bool CanDeadLetterSelection { get; set; }
 
+    /// <summary>Copies of the selected messages can be sent elsewhere: dead-letter sub-queues, or any queue of a broker without them.</summary>
     [Parameter]
-    public bool IsDeadLetterNode { get; set; }
+    public bool CanResubmit { get; set; }
+
+    [Parameter]
+    public string ResubmitLabel { get; set; } = "Requeue…";
 
     [Parameter]
     public bool IsReceiveAndDeleteLoaded { get; set; }

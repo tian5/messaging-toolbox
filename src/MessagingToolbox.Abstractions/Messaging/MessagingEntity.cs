@@ -27,6 +27,13 @@ public sealed record MessagingEntity
     /// <summary>What browsing this entity costs; providers without a read-only browse report <see cref="PeekMode.Requeue"/>.</summary>
     public PeekMode PeekMode { get; init; } = PeekMode.NonDestructive;
 
+    /// <summary>
+    /// The exchange this entity dead-letters into, for brokers that dead-letter through routing
+    /// (RabbitMQ: the queue's or its policy's dead-letter exchange; empty = the default exchange).
+    /// Null when the entity has none, or when the broker uses a dead-letter sub-queue instead.
+    /// </summary>
+    public string? DeadLetterExchange { get; init; }
+
     /// <summary>Runtime counts/sizes when the provider can obtain them; null otherwise.</summary>
     public EntityRuntimeInfo? RuntimeInfo { get; init; }
 }

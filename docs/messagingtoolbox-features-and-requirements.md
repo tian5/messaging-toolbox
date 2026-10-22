@@ -249,8 +249,10 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 - FR-9.4 Publish to a queue (default exchange) or to an exchange with a routing key; unroutable
   messages are reported, not dropped. Receive-and-delete and purge of ready messages.
   *(Done, Phase 4a.)*
-- FR-9.5 Settle-later receive (ack / nack-requeue / reject to the dead-letter exchange) and
-  DLX-aware resubmit. *(Phase 4b.)*
+- FR-9.5 Settle-later receive (ack / nack-requeue / reject to the dead-letter exchange, offered
+  only when the queue has one) with Release held and a 5-minute idle release; "Copy / move to…"
+  on any queue, defaulting to the queue a message was dead-lettered from (ADR 19).
+  *(Done, Phase 4b.)*
 - FR-9.6 Manage queues, exchanges and bindings; move messages with a dynamic shovel; stream
   offsets. *(Phase 4c.)*
 
@@ -290,7 +292,7 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 | 1 — MVP | FR-1…FR-5 complete for ASB cloud + emulator; canned messages; export/import; NuGet + Docker published | Replaces ServiceBusExplorer for daily dev work |
 | 2 — Management | FR-6 incl. rules, import/export of entities (emulator management via the admin endpoint already shipped in Phase 1, ADR 9) | Full management on cloud; honest degraded mode on emulator |
 | 3 — Standalone | FR-1.5 connection-string standalone app; polish; docs site | `docker run` → connect to any namespace |
-| 4 — Multi-broker | RabbitMQ provider (FR-9): 4a explore/peek/publish/purge + Aspire wiring (done); 4b settlement and resubmit; 4c management, bindings, shovel, streams. Abstraction hardening (ADR 17) | Second broker proves the model |
+| 4 — Multi-broker | RabbitMQ provider (FR-9): 4a explore/peek/publish/purge + Aspire wiring (done); 4b settlement and resubmit (done); 4c management, bindings, shovel, streams. Abstraction hardening (ADR 17) | Second broker proves the model |
 | 5 — Cloud identity | Entra ID sign-in, ARM namespace discovery, per-user saved state | No connection strings needed |
 | Backlog | Kafka (topics/offsets/consumer groups — different mental model), NATS JetStream, SQS, ActiveMQ Artemis, Event Hubs, cross-broker message copy |
 

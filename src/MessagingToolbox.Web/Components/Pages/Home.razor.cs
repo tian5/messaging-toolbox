@@ -95,8 +95,37 @@ public partial class Home : IDisposable
     private bool IsDeadLetterNode => ActiveConnectionWorkspace.SelectedNode?.SubQueue is MessageSubQueue.DeadLetter or MessageSubQueue.TransferDeadLetter;
 
     // Only active and scheduled messages can still be dead-lettered — the DLQ views are terminal.
+    // Brokers that dead-letter through routing need the entity to have a dead-letter exchange:
+    // a reject without one discards the message (ADR 19).
     private bool CanDeadLetterSelection => ActiveConnectionWorkspace.SelectedNode?.SubQueue is MessageSubQueue.Active or MessageSubQueue.Scheduled
-        && (IsScheduledNode || IsSettleableLoaded);
+        && (IsScheduledNode || IsSettleableLoaded)
+        && HasDeadLetterDestination;
+
+    private bool CanDeadLetterHeld => !IsDeadLetterNode && HasDeadLetterDestination;
+
+    private bool HasDeadLetterDestination => Capabilities?.SupportsDeadLetterSubQueue != false
+        || ActiveConnectionWorkspace.SelectedNode?.DeadLetterExchange is not null;
+
+    private string DeadLetterDestination => ActiveConnectionWorkspace.SelectedNode?.DeadLetterExchange is { } exchange
+        ? $"dead-letter exchange '{(exchange.Length == 0 ? "(default)" : exchange)}'"
+        : "the dead-letter queue";
+
+    // Dead-letter sub-queues replay their messages; on a broker without them any queue may be a
+    // dead-letter queue, so every queue can send copies elsewhere.
+    private bool CanResubmit => IsDeadLetterNode
+        || (Capabilities?.SupportsDeadLetterSubQueue == false && ActiveConnectionWorkspace.SelectedNode is { Kind: EntityKind.Queue });
+
+    // Originals are removed through held deliveries, or by a sequence scan where the broker has
+    // sequence numbers (DLQ only, ADR 10).
+    private bool CanRemoveOriginals => ActiveConnectionWorkspace.SelectedLockTokens.Count > 0
+        || (IsDeadLetterNode && Capabilities?.SupportsSequenceNumbers != false);
+
+    private IReadOnlyList<string> HeldLockTokens => ActiveConnectionWorkspace.Messages?
+        .Where(message => message.LockToken is not null)
+        .Select(message => message.LockToken!)
+        .ToList() ?? [];
+
+    private bool CanReleaseHeld => IsSettleableLoaded && Capabilities?.SupportsLockExpiry == false && HeldLockTokens.Count > 0;
 
     // Requeue targets are every queue and topic modeled in the tree — DLQ copies can be replayed
     // anywhere. Virtual sub-queue nodes (Active/Scheduled/DLQ) inherit the parent Kind, so they
@@ -485,11 +514,11 @@ public partial class Home : IDisposable
         return received;
     }
 
-    private void ToggleSelection(long sequenceNumber)
+    private void ToggleSelection(string rowKey)
     {
-        if (!ActiveConnectionWorkspace.Selection.Remove(sequenceNumber))
+        if (!ActiveConnectionWorkspace.Selection.Remove(rowKey))
         {
-            ActiveConnectionWorkspace.Selection.Add(sequenceNumber);
+            ActiveConnectionWorkspace.Selection.Add(rowKey);
         }
     }
 
@@ -505,10 +534,7 @@ public partial class Home : IDisposable
 
         foreach (MessageDto message in DisplayedMessages() ?? [])
         {
-            if (message.SequenceNumber is not null)
-            {
-                workspace.Selection.Add(message.SequenceNumber.Value);
-            }
+            workspace.Selection.Add(message.RowKey);
         }
     }
 
@@ -530,6 +556,13 @@ public partial class Home : IDisposable
         }
 
         _ = SettleCoreAsync(action, tokens);
+    }
+
+    // Requeues everything this load holds (abandon), so the application under test gets it back.
+    private Task ReleaseHeld()
+    {
+        IReadOnlyList<string> tokens = HeldLockTokens;
+        return tokens.Count == 0 ? Task.CompletedTask : SettleCoreAsync(new SettleAction(SettlementOperation.Abandon, null, null), tokens);
     }
 
     private Task SettleCoreAsync(SettleAction action, IReadOnlyList<string> tokens)
@@ -675,25 +708,26 @@ public partial class Home : IDisposable
             return;
         }
 
-        List<long> sequences = ActiveConnectionWorkspace.Selection.ToList();
+        List<string> rowKeys = [.. ActiveConnectionWorkspace.Selection];
+        List<long> sequences = [.. ActiveConnectionWorkspace.SelectedSequenceNumbers];
         IReadOnlyList<string> tokens = ActiveConnectionWorkspace.SelectedLockTokens;
         ShowConfirm(
             "Delete messages",
-            $"Permanently delete {sequences.Count} selected message(s) from {ActiveConnectionWorkspace.SelectedNode!.Path} ({SubQueueLabel})? This cannot be undone.",
-            () => DeleteSelectedCoreAsync(sequences, tokens));
+            $"Permanently delete {rowKeys.Count} selected message(s) from {ActiveConnectionWorkspace.SelectedNode!.Path} ({SubQueueLabel})? This cannot be undone.",
+            () => DeleteSelectedCoreAsync(rowKeys, sequences, tokens));
     }
 
-    private Task DeleteSelectedCoreAsync(List<long> sequences, IReadOnlyList<string> tokens)
+    private Task DeleteSelectedCoreAsync(List<string> rowKeys, List<long> sequences, IReadOnlyList<string> tokens)
     {
         ConnectionWorkspace workspace = ActiveConnectionWorkspace;
-        return RunEntityOperationAsync(workspace, () => DeleteSelectedOperationAsync(workspace, sequences, tokens));
+        return RunEntityOperationAsync(workspace, () => DeleteSelectedOperationAsync(workspace, rowKeys, sequences, tokens));
     }
 
-    private async Task DeleteSelectedOperationAsync(ConnectionWorkspace workspace, List<long> sequences, IReadOnlyList<string> tokens)
+    private async Task DeleteSelectedOperationAsync(ConnectionWorkspace workspace, List<string> rowKeys, List<long> sequences, IReadOnlyList<string> tokens)
     {
         EntityTreeNodeDto node = workspace.SelectedNode!;
         string target = $"{workspace.SelectedNode!.Path} ({SubQueueLabels.LabelOf(workspace.SelectedNode.SubQueue)})";
-        Notification notification = Notify($"Deleting {sequences.Count} message(s) from {target}…", pending: true);
+        Notification notification = Notify($"Deleting {rowKeys.Count} message(s) from {target}…", pending: true);
 
         try
         {
@@ -702,8 +736,8 @@ public partial class Home : IDisposable
                 _disposalTokenSource.Token);
 
             workspace.Selection.Clear();
-            Notifications.Complete(notification, ResultText(deleted, sequences.Count, "deleted"));
-            await RefreshAfterMutationAsync(workspace, node, InSequences(sequences));
+            Notifications.Complete(notification, ResultText(deleted, rowKeys.Count, "deleted"));
+            await RefreshAfterMutationAsync(workspace, node, InRows(rowKeys));
         }
         catch (Exception exception)
         {
@@ -725,7 +759,8 @@ public partial class Home : IDisposable
             return;
         }
 
-        List<long> sequences = ActiveConnectionWorkspace.Selection.ToList();
+        List<string> rowKeys = [.. ActiveConnectionWorkspace.Selection];
+        List<long> sequences = [.. ActiveConnectionWorkspace.SelectedSequenceNumbers];
         IReadOnlyList<string> tokens = ActiveConnectionWorkspace.SelectedLockTokens;
         string warning = IsScheduledNode
             ? " Scheduled messages are cancelled and re-sent for immediate delivery before being dead-lettered, so they are briefly active."
@@ -733,21 +768,21 @@ public partial class Home : IDisposable
 
         ShowConfirm(
             "Move to dead-letter",
-            $"Move {sequences.Count} selected message(s) from {ActiveConnectionWorkspace.SelectedNode!.Path} ({SubQueueLabel}) to the dead-letter queue?{warning}",
-            () => DeadLetterSelectedCoreAsync(sequences, tokens));
+            $"Move {rowKeys.Count} selected message(s) from {ActiveConnectionWorkspace.SelectedNode!.Path} ({SubQueueLabel}) to {DeadLetterDestination}?{warning}",
+            () => DeadLetterSelectedCoreAsync(rowKeys, sequences, tokens));
     }
 
-    private Task DeadLetterSelectedCoreAsync(List<long> sequences, IReadOnlyList<string> tokens)
+    private Task DeadLetterSelectedCoreAsync(List<string> rowKeys, List<long> sequences, IReadOnlyList<string> tokens)
     {
         ConnectionWorkspace workspace = ActiveConnectionWorkspace;
-        return RunEntityOperationAsync(workspace, () => DeadLetterSelectedOperationAsync(workspace, sequences, tokens));
+        return RunEntityOperationAsync(workspace, () => DeadLetterSelectedOperationAsync(workspace, rowKeys, sequences, tokens));
     }
 
-    private async Task DeadLetterSelectedOperationAsync(ConnectionWorkspace workspace, List<long> sequences, IReadOnlyList<string> tokens)
+    private async Task DeadLetterSelectedOperationAsync(ConnectionWorkspace workspace, List<string> rowKeys, List<long> sequences, IReadOnlyList<string> tokens)
     {
         EntityTreeNodeDto node = workspace.SelectedNode!;
         string target = $"{workspace.SelectedNode!.Path} ({SubQueueLabels.LabelOf(workspace.SelectedNode.SubQueue)})";
-        Notification notification = Notify($"Moving {sequences.Count} message(s) from {target} to the dead-letter queue…", pending: true);
+        Notification notification = Notify($"Moving {rowKeys.Count} message(s) from {target} to {DeadLetterDestination}…", pending: true);
 
         try
         {
@@ -756,8 +791,8 @@ public partial class Home : IDisposable
                 _disposalTokenSource.Token);
 
             workspace.Selection.Clear();
-            Notifications.Complete(notification, ResultText(moved, sequences.Count, "moved to the dead-letter queue"));
-            await RefreshAfterMutationAsync(workspace, node, InSequences(sequences));
+            Notifications.Complete(notification, ResultText(moved, rowKeys.Count, "dead-lettered"));
+            await RefreshAfterMutationAsync(workspace, node, InRows(rowKeys));
         }
         catch (Exception exception)
         {
@@ -773,7 +808,11 @@ public partial class Home : IDisposable
             return;
         }
 
-        _requeueTarget ??= RequeueTargets.FirstOrDefault()?.Path;
+        // A dead-lettered message that records where it came from suggests its way back.
+        string? source = ActiveConnectionWorkspace.SelectedMessages.Select(message => message.DeadLetterSourcePath).FirstOrDefault(path => path is not null);
+        _requeueTarget = RequeueTargets.FirstOrDefault(target => target.Path == source)?.Path
+            ?? _requeueTarget
+            ?? RequeueTargets.FirstOrDefault()?.Path;
         _requeueRemoveOriginals = false;
         _requeuePanelVisible = true;
     }
@@ -788,9 +827,7 @@ public partial class Home : IDisposable
             return;
         }
 
-        List<MessageDto> selected = workspace.Messages?
-            .Where(message => message.SequenceNumber is not null && workspace.Selection.Contains(message.SequenceNumber.Value))
-            .ToList() ?? [];
+        List<MessageDto> selected = [.. workspace.SelectedMessages];
         if (selected.Count == 0)
         {
             return;
@@ -798,12 +835,12 @@ public partial class Home : IDisposable
 
         string target = _requeueTarget;
         IReadOnlyList<string> tokens = workspace.SelectedLockTokens;
-        bool removeOriginals = _requeueRemoveOriginals;
+        bool removeOriginals = _requeueRemoveOriginals && CanRemoveOriginals;
         string removalText = removeOriginals
             ? tokens.Count > 0
                 ? " The originals are then completed via their held locks."
                 : " The originals are then removed from the dead-letter queue via a bounded sequence scan — any message the scan cannot match stays in the DLQ."
-            : " The originals stay in the dead-letter queue.";
+            : " The originals stay where they are.";
 
         _requeuePanelVisible = false;
         ShowConfirm(
@@ -842,7 +879,7 @@ public partial class Home : IDisposable
             await RefreshAfterMutationAsync(
                 workspace,
                 node,
-                removeOriginals ? InSequences([.. selected.Where(message => message.SequenceNumber is not null).Select(message => message.SequenceNumber!.Value)]) : null);
+                removeOriginals ? InRows([.. selected.Select(message => message.RowKey)]) : null);
         }
         catch (Exception exception)
         {
@@ -961,8 +998,10 @@ public partial class Home : IDisposable
                     ActiveConnectionWorkspace.SelectedNode.SubQueue,
                     ActiveConnectionWorkspace.MaxMessages,
                     ActiveConnectionWorkspace.FromSequence,
-                    ActiveConnectionWorkspace.Selection.ToList(),
-                    IsReceiveAndDeleteLoaded ? ActiveConnectionWorkspace.Messages : null,
+                    null,
+                    // Exports what was loaded and selected; never fetches again (a re-peek isn't
+                    // free on every broker, ADR 17).
+                    ActiveConnectionWorkspace.SelectedMessages,
                     ActiveConnectionWorkspace.SessionFilterFor(ActiveConnectionWorkspace.SelectedNode, MessageLoadMode.Peek)),
                 _disposalTokenSource.Token);
 
@@ -1083,10 +1122,10 @@ public partial class Home : IDisposable
         return ReferenceEquals(workspace, ActiveConnectionWorkspace) ? LoadTreeAsync(workspace) : Task.CompletedTask;
     }
 
-    private static Func<MessageDto, bool> InSequences(IReadOnlyCollection<long> sequences)
+    private static Func<MessageDto, bool> InRows(IReadOnlyCollection<string> rowKeys)
     {
-        HashSet<long> set = [.. sequences];
-        return message => message.SequenceNumber is { } sequence && set.Contains(sequence);
+        HashSet<string> set = [.. rowKeys];
+        return message => set.Contains(message.RowKey);
     }
 
     // After settling part of a settle-later load, keep the messages that are still held (with
@@ -1109,7 +1148,8 @@ public partial class Home : IDisposable
 
             List<MessageDto> stillHeld = held
                 .Where(message => message.LockToken is not null && states.ContainsKey(message.LockToken))
-                .Select(message => message with { LockedUntil = states[message.LockToken!] })
+                // Brokers without expiring locks report "held" only; nothing counts down then.
+                .Select(message => message with { LockedUntil = Capabilities?.SupportsLockExpiry == false ? null : states[message.LockToken!] })
                 .ToList();
 
             workspace.ApplyLoadedMessages(node, stillHeld, MessageLoadMode.Settleable);

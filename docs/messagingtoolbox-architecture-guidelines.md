@@ -395,9 +395,17 @@ Providers.RabbitMQ/
   messages without auto-ack on its own channel and nacks them all with requeue at the end, never
   rejects. Streams report `PeekMode.NonDestructive` and are read by a consumer from offset
   `first`, with the prefetch capping deliveries.
-- **Sequence numbers:** none. Messages carry their 1-based position in the returned batch (stream
-  messages: their offset) as `SequenceNumber`, for display and grid selection only;
-  `SupportsSequenceNumbers` is false, so nothing addresses messages by it.
+- **Sequence numbers:** none (`SupportsSequenceNumbers` is false). Stream messages report their
+  offset as `SequenceNumber`; every other message reports none. The grid selects rows by
+  `MessageDto.RowKey`, assigned per load (sequence number, else lock token, else position).
+- **Settlement (ADR 19):** settle-later receives hold their deliveries on one channel per queue
+  (`HeldDeliveries`, lock token `{heldId}:{deliveryTag}`). Complete = ack, Abandon = nack with
+  requeue, DeadLetter = reject without requeue, refused unless the queue has a dead-letter exchange
+  (argument or policy, read from the management API and reported as
+  `MessagingEntity.DeadLetterExchange`). Held deliveries don't expire: a channel idle for 5 minutes
+  is released (nack with requeue, then close), and so is every held channel on dispose. A
+  dead-lettered message reports `DeadLetterSourcePath` from `x-first-death-queue`, the default
+  target of a resubmit; `PrepareResubmitAsync` clones the typed and application properties only.
 - **Send:** queues through the default exchange, exchanges with `ToolboxMessage.RoutingKey`;
   publisher confirms plus `mandatory`, so an unroutable message is an error, not a silent drop.
 
@@ -721,3 +729,27 @@ Aspire.Hosting/
     read by offset without side effects. Rejected: no peek at all on queues (dead-letter queues,
     the main thing to inspect, would need a destructive receive), and a per-connection opt-in
     (one more switch for behavior every RabbitMQ tool already has).
+19. **RabbitMQ settlement on held channels; native reject as dead-letter; DLQs are plain
+    queues** — RabbitMQ has no message locks: a delivery fetched without auto-ack stays held by
+    the channel that received it until it is acked, nacked or rejected, or the channel closes. So
+    a settle-later receive keeps one channel per queue open while it holds deliveries, and lock
+    tokens name that channel by a random id (channel numbers are reused, so a stale token fails
+    cleanly instead of settling another delivery). Complete is ack, Abandon is nack with requeue.
+    Dead-letter is the broker's own `basic.reject` without requeue, so the message gets a real
+    `x-death` entry, exactly as if a consumer had rejected it; RabbitMQ can't attach a reason to a
+    reject (`SupportsDeadLetterReason` is false, the UI asks for none and the audit log keeps
+    what the user typed). A reject on a queue without a dead-letter exchange discards the message,
+    so the provider refuses it unless the queue's argument or policy names one, and the UI offers
+    dead-lettering only then. Nothing expires held deliveries while they keep messages from the
+    application under test: the UI has Release held (abandon everything in the load), a channel
+    idle for 5 minutes is released, and dispose releases everything — always nack with requeue
+    before closing, because a channel closing with unacked deliveries counts as a failed delivery
+    on quorum queues. RabbitMQ has no dead-letter sub-queue: a queue is a "DLQ" only by purpose,
+    bound to an exchange other queues dead-letter into, and one may serve many queues. The
+    explorer therefore shows it as the ordinary queue it is, with the source queue's dead-letter
+    exchange in its details, and offers "Copy / move to…" on every queue, defaulting to the queue
+    a message was dead-lettered from (`DeadLetterSourcePath`). Grid selection moved from sequence
+    numbers to per-load row keys, and export now writes the loaded selection instead of fetching
+    again (a re-peek isn't free on every broker). Rejected: a virtual DLQ child node (wrong for
+    shared DLQs, empty for ambiguous ones), and dead-lettering by republishing with a reason
+    header (no `x-death`, so not what applications see from real dead-lettering).

@@ -188,6 +188,122 @@ public class RabbitMqRoundTripTests : IClassFixture<RabbitMqFixture>
         entities.ShouldHaveSingleItem().RuntimeInfo!.ActiveMessageCount.ShouldBe(1);
     }
 
+    [BrokerFact]
+    public async Task SettleAsync_CompleteAndAbandon_RemovesOneAndRequeuesTheOtherWithoutBumpingDeliveryCount()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.QueueDeclareAsync("rt-settle", true, false, false, QueueType("quorum"));
+            await PublishAsync(channel, "rt-settle", "keep", "remove");
+        });
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+        IReadOnlyList<ToolboxMessage> held = await sut.ReceiveForSettlementAsync("queues/rt-settle", MessageSubQueue.Active, 10, null, CancellationToken.None);
+
+
+        await sut.SettleAsync(new SettleRequest("queues/rt-settle", MessageSubQueue.Active, SettlementOperation.Abandon, [held[0].LockToken!], null, null), CancellationToken.None);
+        await sut.SettleAsync(new SettleRequest("queues/rt-settle", MessageSubQueue.Active, SettlementOperation.Complete, [held[1].LockToken!], null, null), CancellationToken.None);
+
+
+        held.Select(Body).ShouldBe(["keep", "remove"]);
+        IReadOnlyList<ToolboxMessage> remaining = await sut.ReceiveAsync(new ReceiveRequest("queues/rt-settle", MessageSubQueue.Active, 10, null), CancellationToken.None);
+        ToolboxMessage kept = remaining.ShouldHaveSingleItem();
+        Body(kept).ShouldBe("keep");
+        kept.DeliveryCount.ShouldBeLessThanOrEqualTo(1);
+    }
+
+    [BrokerFact]
+    public async Task SettleAsync_DeadLetter_RoutesThroughTheDeadLetterExchangeWithDeathHistory()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.ExchangeDeclareAsync("rt-dlx", ExchangeType.Fanout, durable: true);
+            await channel.QueueDeclareAsync("rt-dlx-target", true, false, false);
+            await channel.QueueBindAsync("rt-dlx-target", "rt-dlx", string.Empty);
+            await channel.QueueDeclareAsync("rt-dlx-source", true, false, false, new Dictionary<string, object?> { ["x-dead-letter-exchange"] = "rt-dlx" });
+            await PublishAsync(channel, "rt-dlx-source", "poison");
+        });
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+        MessagingEntity source = (await ListAsync(sut)).Single(entity => entity.Path == "queues/rt-dlx-source");
+        IReadOnlyList<ToolboxMessage> held = await sut.ReceiveForSettlementAsync("queues/rt-dlx-source", MessageSubQueue.Active, 10, null, CancellationToken.None);
+
+
+        await sut.SettleAsync(new SettleRequest("queues/rt-dlx-source", MessageSubQueue.Active, SettlementOperation.DeadLetter, [held[0].LockToken!], "ignored", null), CancellationToken.None);
+
+
+        source.DeadLetterExchange.ShouldBe("rt-dlx");
+        IReadOnlyList<ToolboxMessage> deadLettered = await sut.PeekAsync(new PeekRequest("queues/rt-dlx-target", MessageSubQueue.Active, 10, null), CancellationToken.None);
+        ToolboxMessage message = deadLettered.ShouldHaveSingleItem();
+        message.DeadLetterReason.ShouldBe("rejected");
+        message.DeadLetterSourcePath.ShouldBe("queues/rt-dlx-source");
+        (await sut.GetRuntimeInfoAsync("queues/rt-dlx-source", CancellationToken.None)).ActiveMessageCount.ShouldBe(0);
+    }
+
+    [BrokerFact]
+    public async Task SettleAsync_DeadLetterWithoutDeadLetterExchange_RefusesAndKeepsTheMessage()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.QueueDeclareAsync("rt-no-dlx", true, false, false);
+            await PublishAsync(channel, "rt-no-dlx", "precious");
+        });
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+        await ListAsync(sut);
+        IReadOnlyList<ToolboxMessage> held = await sut.ReceiveForSettlementAsync("queues/rt-no-dlx", MessageSubQueue.Active, 10, null, CancellationToken.None);
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => sut.SettleAsync(
+            new SettleRequest("queues/rt-no-dlx", MessageSubQueue.Active, SettlementOperation.DeadLetter, [held[0].LockToken!], null, null),
+            CancellationToken.None));
+
+
+        await sut.SettleAsync(new SettleRequest("queues/rt-no-dlx", MessageSubQueue.Active, SettlementOperation.Abandon, [held[0].LockToken!], null, null), CancellationToken.None);
+        (await sut.GetRuntimeInfoAsync("queues/rt-no-dlx", CancellationToken.None)).ActiveMessageCount.ShouldBe(1);
+    }
+
+    [BrokerFact]
+    public async Task DisposeAsync_WithHeldDeliveries_RequeuesThem()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.QueueDeclareAsync("rt-held-dispose", true, false, false);
+            await PublishAsync(channel, "rt-held-dispose", "a", "b");
+        });
+        RabbitMqProvider sut = _fixture.CreateProvider();
+        IReadOnlyList<ToolboxMessage> held = await sut.ReceiveForSettlementAsync("queues/rt-held-dispose", MessageSubQueue.Active, 10, null, CancellationToken.None);
+
+
+        await sut.DisposeAsync();
+
+
+        held.Count.ShouldBe(2);
+        await using RabbitMqProvider other = _fixture.CreateProvider();
+        (await other.GetRuntimeInfoAsync("queues/rt-held-dispose", CancellationToken.None)).ActiveMessageCount.ShouldBe(2);
+    }
+
+    [BrokerFact]
+    public async Task PrepareResubmitAsync_FromDeadLetterQueue_SendsCloneBackAndRemovesOriginal()
+    {
+        await _fixture.DeclareAsync(async channel =>
+        {
+            await channel.QueueDeclareAsync("rt-resubmit-source", true, false, false);
+            await channel.QueueDeclareAsync("rt-resubmit-dlq", true, false, false);
+            await PublishAsync(channel, "rt-resubmit-dlq", "retry-me");
+        });
+        await using RabbitMqProvider sut = _fixture.CreateProvider();
+        ToolboxMessage original = (await sut.ReceiveForSettlementAsync("queues/rt-resubmit-dlq", MessageSubQueue.Active, 10, null, CancellationToken.None)).Single();
+
+
+        ToolboxMessage clone = await sut.PrepareResubmitAsync("queues/rt-resubmit-dlq", MessageSubQueue.Active, original, ResubmitOverrides.Empty, CancellationToken.None);
+        await sut.SendAsync("queues/rt-resubmit-source", [clone], CancellationToken.None);
+        await sut.SettleAsync(new SettleRequest("queues/rt-resubmit-dlq", MessageSubQueue.Active, SettlementOperation.Complete, [original.LockToken!], null, null), CancellationToken.None);
+
+
+        (await sut.GetRuntimeInfoAsync("queues/rt-resubmit-dlq", CancellationToken.None)).ActiveMessageCount.ShouldBe(0);
+        ToolboxMessage resent = (await sut.ReceiveAsync(new ReceiveRequest("queues/rt-resubmit-source", MessageSubQueue.Active, 10, null), CancellationToken.None)).Single();
+        Body(resent).ShouldBe("retry-me");
+        resent.ApplicationProperties.ShouldContainKey("toolbox-replayed-from");
+    }
+
     private static Dictionary<string, object?> QueueType(string type) => new() { ["x-queue-type"] = type };
 
     private static string Body(ToolboxMessage message) => Encoding.UTF8.GetString(message.Body);
