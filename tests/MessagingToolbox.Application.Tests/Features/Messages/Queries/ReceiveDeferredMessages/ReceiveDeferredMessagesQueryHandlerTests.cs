@@ -4,6 +4,7 @@ using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Common.Dtos;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Features.Messages.Queries.ReceiveDeferredMessages;
+using MessagingToolbox.Application.Tests.Common;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -76,7 +77,6 @@ public class ReceiveDeferredMessagesQueryHandlerTests
             CancellationToken.None).AsTask());
     }
 
-    private static ProviderCapabilities Capabilities(bool canReceiveSettle) => new(
-        CanManageEntities: false, CanManageRules: false, CanPeek: true, CanReceiveSettle: canReceiveSettle,
-        SupportsSessions: true, SupportsScheduling: true, SupportsTransactions: false, MaxMessageSizeBytes: 256 * 1024);
+    private static ProviderCapabilities Capabilities(bool canReceiveSettle) =>
+        TestCapabilities.DataPlane with { CanReceiveSettle = canReceiveSettle };
 }

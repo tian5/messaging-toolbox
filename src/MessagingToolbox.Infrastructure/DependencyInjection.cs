@@ -1,6 +1,7 @@
 using MessagingToolbox.Application.Configuration;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Domain.Common;
+using MessagingToolbox.Infrastructure.Messaging;
 using MessagingToolbox.Infrastructure.Persistence;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -38,6 +39,10 @@ public static class DependencyInjection
 
             services.AddSingleton<IConnectionCatalog, ConnectionCatalog>();
             services.AddHostedService<ToolboxDbInitializer>();
+
+            // Singleton: broker clients are cached per connection while handlers stay scoped
+            // (architecture doc §5). Provider projects contribute IMessagingProviderBuilders.
+            services.AddSingleton<IMessagingProviderFactory, MessagingProviderFactory>();
 
             return services;
         }

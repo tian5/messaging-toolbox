@@ -54,7 +54,7 @@ src/
   MessagingToolbox.ServiceDefaults    OpenTelemetry / health-check defaults
   MessagingToolbox.Aspire.Hosting     AppHost extensions: AddMessagingToolbox(...) — the NuGet package
   MessagingToolbox.AppHost            Dogfood playground (ASB emulator + toolbox)
-  (Phase 4) MessagingToolbox.Providers.RabbitMQ — proves the abstraction
+  MessagingToolbox.Providers.RabbitMQ — proves the abstraction (Phase 4)
 ```
 
 ### 2.2 Provider abstraction (the important part)
@@ -66,7 +66,9 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
     ProviderCapabilities Capabilities { get; }   // CanManageEntities, CanManageRules, CanPeek,
                                                  // CanReceiveSettle, SupportsSessions,
                                                  // SupportsScheduling, SupportsTransactions,
-                                                 // MaxMessageSizeBytes
+                                                 // SupportsDeadLetterSubQueue, SupportsDeferral,
+                                                 // SupportsSequenceNumbers, SupportsLockExpiry,
+                                                 // MaxMessageSizeBytes (architecture doc §4)
     IAsyncEnumerable<MessagingEntity> ListEntitiesAsync(...);
     Task<EntityRuntimeInfo> GetRuntimeInfoAsync(string path, ...);        // counts, size, status
     Task<IReadOnlyList<ToolboxMessage>> PeekAsync(PeekRequest req, ...);  // from seq, count, sub-queue
@@ -107,16 +109,22 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 - FR-1.2 Detect emulator connections (`UseDevelopmentEmulator=true` or Aspire emulator resource)
   and downgrade capabilities accordingly.
 - FR-1.3 Multiple connections open simultaneously, side-by-side trees.
-- FR-1.4 (Aspire) Auto-create connections from referenced `AzureServiceBusResource`s — zero config.
+- FR-1.4 (Aspire) Auto-create connections from referenced broker resources
+  (`AzureServiceBusResource`, `RabbitMQServerResource`) — zero config.
 - FR-1.5 (Later) Entra ID auth; (Later still) Azure sign-in with ARM namespace discovery.
 
 ### FR-2 Entity explorer
 - FR-2.1 Tree: connection → queues | topics → subscriptions; every message-bearing entity gets
   **Active / Scheduled / Dead-letter** child nodes (Scheduled only when the provider declares
-  `SupportsScheduling`). The transfer-DLQ is surfaced as a count in the details view, not as a
+  `SupportsScheduling`, Dead-letter only with `SupportsDeadLetterSubQueue`). When neither applies
+  (RabbitMQ), an Active child would only repeat its entity, so the entity is a leaf node that
+  shows its own count. The transfer-DLQ is surfaced as a count in the details view, not as a
   tree node.
 - FR-2.2 Per-entity runtime info: active / scheduled / dead-letter / transfer counts, size,
-  status, timestamps. Counts always refresh after mutations; a manual Refresh button in the
+  status, timestamps. The broker's entity flavour (e.g. a RabbitMQ `stream` or `quorum` queue)
+  shows as a tag in the tree and in the details header; a collapsible **Properties** section
+  lists the broker-specific settings (TTL, max size, lock duration, arguments, policy, …) as
+  the provider formats them. Counts always refresh after mutations; a manual Refresh button in the
   sidebar reloads the tree on demand. Auto-refresh is opt-in — off by default
   (`ToolboxOptions:RefreshIntervalSeconds` = 0) — via the Auto toggle (10 s fallback when the
   option is 0) or a configured interval. On connections without a
@@ -167,7 +175,8 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
   that are no longer deferred, are locked elsewhere or are gone are skipped and reported.
 
 ### FR-4 Sending & editing
-- FR-4.1 Composer with Monaco editor: body, content type, every system property, and a
+- FR-4.1 Composer with Monaco editor, sending to the selected entity (the target is shown
+  read-only; "Copy / move to…" sends elsewhere): body, content type, every system property, and a
   key/value grid for application properties, each sent with a chosen type (string, Int32,
   Int64, Boolean, Double, DateTime, Guid; ADR 14). Repair prefills keep each property's type.
   The composer keeps its draft per connection — after a send and across node switches — so the
@@ -207,12 +216,16 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
   tokens.
 
 ### FR-6 Entity management (capability-gated)
-- FR-6.1 Create/update/delete queues, topics, subscriptions.
+- FR-6.1 Create/update/delete the entity types the provider describes (queues, topics and
+  subscriptions on Service Bus; queues and exchanges on RabbitMQ). The editor is built from the
+  provider's entity-type schema (ADR 21): options the broker fixes at creation are read-only when
+  editing, and an entity whose every option is fixed opens read-only.
 - FR-6.2 Full settings surface: lock duration, default TTL, max size, duplicate detection
   window, require session, dead-letter on expiration, forward-to, auto-delete-on-idle,
   enable/disable (send/receive/both).
 - FR-6.3 Subscription rules: list, create, edit, delete — SQL filters, correlation filters,
-  rule actions.
+  rule actions. To be implemented through the routing-rule contract that RabbitMQ bindings use
+  (ADR 22).
 - FR-6.4 Import/export namespace entity definitions (JSON), ServiceBusExplorer-compatible
   where feasible.
 - FR-6.5 (Emulator) config.json editor — **dropped**. Emulator entities are managed via the
@@ -221,14 +234,48 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
   config.json editing or restart-to-apply workflow.
 
 ### FR-7 Aspire integration
-- FR-7.1 `AddMessagingToolbox(name, serviceBusResource)` hosting extension; works with
-  `.RunAsEmulator()` and with real namespaces (any `IResourceWithConnectionString`).
+- FR-7.1 `AddMessagingToolbox(name, brokerResource)` hosting extension; works with
+  `.RunAsEmulator()`, with real namespaces (any `IResourceWithConnectionString`), and with
+  `AddRabbitMQ(...)` servers (the management endpoint is passed when `WithManagementPlugin()` is on).
 - FR-7.2 Dashboard resource with endpoint URL, `/health` health check, `WaitFor` on every
   attached broker, a persistent data volume, and a container image tag pinned to the package
-  version (done). `serviceBus.WithMessagingToolbox()` is the one-line form.
+  version (done). `serviceBus.WithMessagingToolbox()` / `rabbitMq.WithMessagingToolbox()` is the
+  one-line form.
 - FR-7.3 Custom commands: "Open toolbox", "Send test message…", "Purge DLQ…" using
   Interaction Service typed inputs. *(Deferred — no implementation exists yet.)*
 - FR-7.4 Pre-seed entity tree from AppHost-modeled queues/topics/subscriptions.
+
+### FR-9 RabbitMQ
+- FR-9.1 Connect by AMQP URI (`amqp[s]://user:password@host:port/vhost`, one connection per vhost);
+  the management API is derived (`:15672`, `:15671` with TLS), set with `;Management=<url>`, or
+  passed in by Aspire. *(Done, Phase 4a.)*
+- FR-9.2 Explorer: queues (classic, quorum, stream) and user exchanges from the management API,
+  with counts; without the API, config-listed queues counted over AMQP and the reason shown.
+  Dead-letter queues are ordinary queues (no DLQ sub-node). Queue and exchange types are tagged
+  in the tree; durable/auto-delete/exclusive, arguments, policy and consumers are listed under
+  Properties, and bindings in their own panel (FR-9.7). Streams offer peek and send only, with the reason shown (ADR 20). *(Done, Phase 4a.)*
+- FR-9.3 Peek: classic and quorum queues by get + nack-requeue, only on an explicit Load and
+  disclosed next to it (ADR 18); streams read from their first offset without side effects.
+  Death history (`x-death`, `x-first-death-*`) and delivery counts shown as broker properties.
+  *(Done, Phase 4a.)*
+- FR-9.4 Publish to a queue (default exchange) or to an exchange with a routing key; unroutable
+  messages are reported, not dropped. Receive-and-delete and purge of ready messages.
+  *(Done, Phase 4a.)*
+- FR-9.5 Settle-later receive (ack / nack-requeue / reject to the dead-letter exchange, offered
+  only when the queue has one) with Release held and a 5-minute idle release; "Copy / move to…"
+  on any queue, defaulting to the queue a message was dead-lettered from (ADR 19).
+  *(Done, Phase 4b.)*
+- FR-9.6 Manage queues (type, durability, TTL, length limits, overflow, dead-lettering, delivery
+  limit, stream retention) and exchanges (type, durability, internal, alternate exchange) through
+  the management API; refusals show the broker's reason. *(Done, Phase 4c.)*
+- FR-9.7 Bindings: a panel in the entity details lists the bindings from and to the selected
+  queue or exchange (routing key, match arguments) and creates or deletes them, confirmed and
+  audited (ADR 22). *(Done, Phase 4c.)*
+- FR-9.8 Move every message of a queue to another queue inside the broker ("Move all…"), with
+  the source's count in the confirmation, audited, through a dynamic shovel; offered when the
+  shovel management plugin is enabled (ADR 23). *(Done, Phase 4c.)*
+- FR-9.9 Streams: peek from an offset or a point in time (UTC) as well as from the start, and
+  live watch on streams with the offset as the cursor (ADR 24). *(Done, Phase 4c.)*
 
 ### FR-8 Developer-experience extras (post-MVP)
 - Load/burst sender (rate, count, template-driven) for testing consumers.
@@ -266,7 +313,7 @@ public interface IMessagingProvider   // lives in MessagingToolbox.Abstractions
 | 1 — MVP | FR-1…FR-5 complete for ASB cloud + emulator; canned messages; export/import; NuGet + Docker published | Replaces ServiceBusExplorer for daily dev work |
 | 2 — Management | FR-6 incl. rules, import/export of entities (emulator management via the admin endpoint already shipped in Phase 1, ADR 9) | Full management on cloud; honest degraded mode on emulator |
 | 3 — Standalone | FR-1.5 connection-string standalone app; polish; docs site | `docker run` → connect to any namespace |
-| 4 — Multi-broker | RabbitMQ provider (exchanges/queues/bindings, vhosts, purge, publish); abstraction hardening | Second broker proves the model |
+| 4 — Multi-broker | RabbitMQ provider (FR-9): 4a explore/peek/publish/purge + Aspire wiring (done); 4b settlement and resubmit (done); 4c management, bindings, shovel, streams (done). Abstraction hardening (ADR 17) | Second broker proves the model |
 | 5 — Cloud identity | Entra ID sign-in, ARM namespace discovery, per-user saved state | No connection strings needed |
 | Backlog | Kafka (topics/offsets/consumer groups — different mental model), NATS JetStream, SQS, ActiveMQ Artemis, Event Hubs, cross-broker message copy |
 

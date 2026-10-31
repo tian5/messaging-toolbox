@@ -9,9 +9,14 @@ namespace MessagingToolbox.Abstractions.Messaging;
 /// Optional session filter: only messages of this session are returned. Applied while paging, so
 /// browsing stays side-effect free (no session is locked).
 /// </param>
+/// <param name="FromTime">
+/// Optional point in time to start from, for entities with <see cref="MessagingEntity.CanPeekFromTime"/>;
+/// at most one of this and <paramref name="FromSequenceNumber"/> is set.
+/// </param>
 public sealed record PeekRequest(
     string EntityPath,
     MessageSubQueue SubQueue,
     int MaxMessages,
     long? FromSequenceNumber,
-    string? SessionId = null);
+    string? SessionId = null,
+    DateTimeOffset? FromTime = null);

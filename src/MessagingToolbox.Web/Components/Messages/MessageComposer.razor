@@ -15,11 +15,18 @@
         }
     </h3>
 
+    @* The composer always sends to the selected entity; sending elsewhere is "Copy / move to…". *@
     <label for="composer-target">Target</label>
-    <input id="composer-target" @bind="Draft.TargetPath" />
+    <input id="composer-target" value="@TargetPath" readonly
+           title="Messages go to the selected entity — select another entity in the tree to send there." />
     @if (FanOutWarning?.Invoke(TargetPath) is { } fanOut)
     {
         <p class="hint warn">@fanOut</p>
+    }
+    @if (ShowRoutingKey)
+    {
+        <label for="composer-routing-key">Routing key</label>
+        <input id="composer-routing-key" @bind="Draft.RoutingKey" placeholder="bound queues whose binding key matches receive the message" />
     }
 
     <label>Body</label>
@@ -57,11 +64,17 @@
             <label>Subject</label><input @bind="Draft.Subject" />
             <label>Message ID</label><input @bind="Draft.MessageId" />
             <label>Correlation ID</label><input @bind="Draft.CorrelationId" />
-            <label>Session ID</label><input @bind="Draft.SessionId" placeholder="@(RequiresSession ? "required: the entity uses sessions" : null)" />
+            @if (Capabilities?.SupportsSessions != false)
+            {
+                <label>Session ID</label><input @bind="Draft.SessionId" placeholder="@(RequiresSession ? "required: the entity uses sessions" : null)" />
+            }
             <label>To</label><input @bind="Draft.To" />
             <label>Reply to</label><input @bind="Draft.ReplyTo" />
-            <label>Scheduled enqueue (your local time)</label>
-            <InputDate @bind-Value="Draft.ScheduledLocal" Type="InputDateType.DateTimeLocal" />
+            @if (Capabilities?.SupportsScheduling != false)
+            {
+                <label>Scheduled enqueue (your local time)</label>
+                <InputDate @bind-Value="Draft.ScheduledLocal" Type="InputDateType.DateTimeLocal" />
+            }
             <label>Time to live (seconds)</label>
             <InputNumber @bind-Value="Draft.TimeToLiveSeconds" />
         </div>

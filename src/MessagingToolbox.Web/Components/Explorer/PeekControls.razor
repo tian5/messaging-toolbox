@@ -2,13 +2,25 @@
 <div class="peek-controls">
     <select @bind="Workspace.ViewMode" title="Load mode (FR-3.2)" disabled="@IsScheduledNode">
         <option value="@MessageLoadMode.Peek">Peek</option>
-        <option value="@MessageLoadMode.Settleable">Receive (settle later)</option>
-        <option value="@MessageLoadMode.ReceiveAndDelete">Receive &amp; delete</option>
+        @if (Capabilities?.CanReceiveSettle != false && Operations.CanReceiveSettle)
+        {
+            <option value="@MessageLoadMode.Settleable">Receive (settle later)</option>
+        }
+        @if (Operations.CanReceive)
+        {
+            <option value="@MessageLoadMode.ReceiveAndDelete">Receive &amp; delete</option>
+        }
     </select>
     <label title="How many messages to fetch; the provider pages through the broker (max 5000)">Max <InputNumber @bind-Value="Workspace.MaxMessages" min="1" max="5000" /></label>
-    @if (Workspace.ViewMode == MessageLoadMode.Peek)
+    @if (Workspace.ViewMode == MessageLoadMode.Peek && CanPeekFromSequence)
     {
         <label>From seq <InputNumber @bind-Value="Workspace.FromSequence" /></label>
+    }
+    @if (Workspace.ViewMode == MessageLoadMode.Peek && CanPeekFromTime)
+    {
+        <label title="Start at the first messages written at or after this time (UTC, to the second); leave empty to start at the beginning">
+            From (UTC) <input type="datetime-local" step="1" @bind="Workspace.FromTime" />
+        </label>
     }
     @if (ShowSessionFilter)
     {
@@ -22,7 +34,7 @@
             }
         </datalist>
     }
-    @if (Workspace.ViewMode == MessageLoadMode.Settleable)
+    @if (Workspace.ViewMode == MessageLoadMode.Settleable && Capabilities?.SupportsLockExpiry != false)
     {
         <label title="Locks are renewed in the background for this long after the receive; entity lock duration applies when 0 (max 300 s)">Renew locks (s) <InputNumber @bind-Value="Workspace.LockRenewalSeconds" min="0" max="300" /></label>
         @if (Workspace.LockRenewalCount > 0)
@@ -34,6 +46,27 @@
         @(EntityLoading ? "Loading…" : "Load")
     </button>
     <span class="muted">@SubQueueLabel</span>
+    @if (Workspace.ViewMode == MessageLoadMode.Settleable && Capabilities?.SupportsLockExpiry == false)
+    {
+        @* ADR 19: held deliveries never expire on their own, so the provider releases idle ones. *@
+        <p class="hint" role="note">
+            Received messages stay held — invisible to consumers — until you settle or release them.
+            Held messages left untouched are released automatically after @HeldReleaseMinutes minutes.
+        </p>
+    }
+    @if (Operations.Reason is { } reason)
+    {
+        @* ADR 20: the entity narrows what the connection allows; say why instead of failing on Load. *@
+        <p class="hint" role="note">@reason</p>
+    }
+    @if (Workspace.ViewMode == MessageLoadMode.Peek && PeekMode == PeekMode.Requeue)
+    {
+        @* ADR 17: no read-only browse on this broker, so peek is only ever this explicit Load. *@
+        <p class="hint" role="note">
+            This broker has no read-only browse. Loading takes the messages briefly and requeues them:
+            they are marked redelivered, invisible to consumers meanwhile, and may change order.
+        </p>
+    }
 </div>
 
 @code {
@@ -47,8 +80,31 @@
     [Parameter]
     public bool RequiresSession { get; set; }
 
-    private bool ShowSessionFilter
-        => RequiresSession || !string.IsNullOrEmpty(Workspace.SessionId) || Workspace.LoadedSessionIds.Count > 0;
+    /// <summary>The active connection's capabilities; null while unknown (everything is offered).</summary>
+    [Parameter]
+    public ProviderCapabilities? Capabilities { get; set; }
+
+    /// <summary>A peek can start at a sequence number (the connection's or the entity's, ADR 24).</summary>
+    [Parameter]
+    public bool CanPeekFromSequence { get; set; }
+
+    /// <summary>A peek can start at a point in time.</summary>
+    [Parameter]
+    public bool CanPeekFromTime { get; set; }
+
+    /// <summary>What a peek of the selected entity costs; a requeue-peek is disclosed next to Load.</summary>
+    [Parameter]
+    public PeekMode PeekMode { get; set; }
+
+    /// <summary>What the selected entity allows beyond the capabilities; load modes it refuses aren't offered.</summary>
+    [Parameter]
+    public EntityOperations Operations { get; set; } = EntityOperations.All;
+
+    // Mirrors the RabbitMQ provider's idle release (RabbitMqProvider.HeldIdleTimeout).
+    private const int HeldReleaseMinutes = 5;
+
+    private bool ShowSessionFilter => Capabilities?.SupportsSessions != false
+        && (RequiresSession || !string.IsNullOrEmpty(Workspace.SessionId) || Workspace.LoadedSessionIds.Count > 0);
 
     [Parameter]
     public string SubQueueLabel { get; set; } = string.Empty;

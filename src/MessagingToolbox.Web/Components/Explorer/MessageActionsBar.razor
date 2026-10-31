@@ -11,9 +11,14 @@
         Import
         <InputFile OnChange="Import" accept=".json" disabled="@EntityBusy" />
     </label>
-    @if (!IsScheduledNode)
+    @if (!IsScheduledNode && CanPurge)
     {
         <button type="button" class="danger" @onclick="Purge" disabled="@EntityBusy" title="Purge this sub-queue (FR-5.2)">Purge…</button>
+    }
+    @if (!IsScheduledNode && CanMove)
+    {
+        <button type="button" @onclick="Move" disabled="@EntityBusy"
+                title="Move every message to another queue inside the broker (FR-9.8)">Move all…</button>
     }
     @if (DeferredSelectedCount > 0)
     {
@@ -25,13 +30,16 @@
         <button type="button" class="danger" @onclick="DeadLetter" disabled="@(Workspace.Selection.Count == 0 || EntityBusy)"
                 title="Move the selected messages to the dead-letter queue (FR-5.1)">To DLQ (@Workspace.Selection.Count)</button>
     }
-    @if (IsDeadLetterNode)
+    @if (CanResubmit)
     {
         <button type="button" @onclick="Requeue" disabled="@(Workspace.Selection.Count == 0 || EntityBusy)"
-                title="Requeue the selected messages into a queue or topic of your choice (FR-4.6)">Requeue… (@Workspace.Selection.Count)</button>
+                title="Send copies of the selected messages to a queue, topic or exchange of your choice (FR-4.6)">@ResubmitLabel (@Workspace.Selection.Count)</button>
     }
-    <button type="button" class="danger" @onclick="Delete" disabled="@(Workspace.Selection.Count == 0 || IsReceiveAndDeleteLoaded || EntityBusy)"
-            title="@(IsReceiveAndDeleteLoaded ? "Messages were already deleted by receive & delete" : "Permanently delete the selected messages (FR-5.3)")">Delete (@Workspace.Selection.Count)</button>
+    @if (CanDelete)
+    {
+        <button type="button" class="danger" @onclick="Delete" disabled="@(Workspace.Selection.Count == 0 || IsReceiveAndDeleteLoaded || EntityBusy)"
+                title="@(IsReceiveAndDeleteLoaded ? "Messages were already deleted by receive & delete" : "Permanently delete the selected messages (FR-5.3)")">Delete (@Workspace.Selection.Count)</button>
+    }
 </div>
 
 @code {
@@ -41,11 +49,27 @@
     [Parameter]
     public bool IsScheduledNode { get; set; }
 
+    /// <summary>The entity can be purged (a stream, for one, can't).</summary>
+    [Parameter]
+    public bool CanPurge { get; set; } = true;
+
+    /// <summary>Every message can be moved to another entity inside the broker.</summary>
+    [Parameter]
+    public bool CanMove { get; set; }
+
+    /// <summary>The entity's messages can be removed one by one (a stream's can't).</summary>
+    [Parameter]
+    public bool CanDelete { get; set; } = true;
+
     [Parameter]
     public bool CanDeadLetterSelection { get; set; }
 
+    /// <summary>Copies of the selected messages can be sent elsewhere: dead-letter sub-queues, or any queue of a broker without them.</summary>
     [Parameter]
-    public bool IsDeadLetterNode { get; set; }
+    public bool CanResubmit { get; set; }
+
+    [Parameter]
+    public string ResubmitLabel { get; set; } = "Requeue…";
 
     [Parameter]
     public bool IsReceiveAndDeleteLoaded { get; set; }
@@ -66,6 +90,9 @@
 
     [Parameter]
     public EventCallback Purge { get; set; }
+
+    [Parameter]
+    public EventCallback Move { get; set; }
 
     [Parameter]
     public EventCallback ReceiveDeferred { get; set; }

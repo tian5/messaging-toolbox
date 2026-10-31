@@ -3,6 +3,7 @@ using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Common.Dtos;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Features.Explorer.Queries.GetEntityTree;
+using MessagingToolbox.Application.Tests.Common;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -13,15 +14,7 @@ public class GetEntityTreeQueryHandlerTests
 {
     private static readonly Guid ConnectionId = Guid.NewGuid();
 
-    private static readonly ProviderCapabilities FullCapabilities = new(
-        CanManageEntities: true,
-        CanManageRules: true,
-        CanPeek: true,
-        CanReceiveSettle: true,
-        SupportsSessions: true,
-        SupportsScheduling: true,
-        SupportsTransactions: true,
-        MaxMessageSizeBytes: 256 * 1024);
+    private static readonly ProviderCapabilities FullCapabilities = TestCapabilities.Full;
 
     private readonly IMessagingProviderFactory _providerFactory;
     private readonly IMessagingProvider _provider;
@@ -131,6 +124,105 @@ public class GetEntityTreeQueryHandlerTests
         EntityTreeNodeDto node = tree.ShouldHaveSingleItem();
         node.Children.Count.ShouldBe(2);
         node.Children.ShouldNotContain(child => child.SubQueue == MessageSubQueue.Scheduled);
+    }
+
+    [Fact]
+    public async Task Handle_DeadLetterSubQueueUnsupported_OmitsDeadLetterNode()
+    {
+        _provider.Capabilities.Returns(FullCapabilities with { SupportsDeadLetterSubQueue = false });
+
+        MessagingEntity queue = new() { Path = "orders", Name = "orders", Kind = EntityKind.Queue };
+        _provider.ListEntitiesAsync(Arg.Any<CancellationToken>())
+            .Returns(TestAsyncEnumerable.Of(queue));
+
+
+        IReadOnlyList<EntityTreeNodeDto> tree = await _sut.Handle(new GetEntityTreeQuery(ConnectionId), CancellationToken.None);
+
+
+        EntityTreeNodeDto node = tree.ShouldHaveSingleItem();
+        node.Children.Select(child => child.SubQueue).ShouldBe([MessageSubQueue.Active, MessageSubQueue.Scheduled]);
+    }
+
+    [Fact]
+    public async Task Handle_OnlyActiveMessages_RendersEntityAsLeafWithoutSubQueueNodes()
+    {
+        _provider.Capabilities.Returns(FullCapabilities with { SupportsScheduling = false, SupportsDeadLetterSubQueue = false });
+
+        MessagingEntity queue = new() { Path = "queues/orders", Name = "orders", Kind = EntityKind.Queue, PeekMode = PeekMode.Requeue };
+        _provider.ListEntitiesAsync(Arg.Any<CancellationToken>())
+            .Returns(TestAsyncEnumerable.Of(queue));
+
+
+        IReadOnlyList<EntityTreeNodeDto> tree = await _sut.Handle(new GetEntityTreeQuery(ConnectionId), CancellationToken.None);
+
+
+        EntityTreeNodeDto node = tree.ShouldHaveSingleItem();
+        node.Children.ShouldBeEmpty();
+        node.IsSubQueueNode.ShouldBeFalse();
+        node.SubQueue.ShouldBe(MessageSubQueue.Active);
+        node.PeekMode.ShouldBe(PeekMode.Requeue);
+    }
+
+    [Fact]
+    public async Task Handle_StreamEntity_FlowsSequenceNumbersAndTimeStart()
+    {
+        _provider.Capabilities.Returns(FullCapabilities with { SupportsScheduling = false, SupportsDeadLetterSubQueue = false, SupportsSequenceNumbers = false });
+        MessagingEntity stream = new() { Path = "queues/activity", Name = "activity", Kind = EntityKind.Queue, HasSequenceNumbers = true, CanPeekFromTime = true };
+        _provider.ListEntitiesAsync(Arg.Any<CancellationToken>())
+            .Returns(TestAsyncEnumerable.Of(stream));
+
+
+        IReadOnlyList<EntityTreeNodeDto> tree = await _sut.Handle(new GetEntityTreeQuery(ConnectionId), CancellationToken.None);
+
+
+        EntityTreeNodeDto node = tree.ShouldHaveSingleItem();
+        node.HasSequenceNumbers.ShouldBeTrue();
+        node.CanPeekFromTime.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Handle_Exchanges_RendersThemAfterQueuesWithoutChildren()
+    {
+        MessagingEntity queue = new() { Path = "queues/orders", Name = "orders", Kind = EntityKind.Queue };
+        MessagingEntity exchange = new() { Path = "exchanges/events", Name = "events", Kind = EntityKind.Exchange };
+        _provider.ListEntitiesAsync(Arg.Any<CancellationToken>())
+            .Returns(TestAsyncEnumerable.Of(exchange, queue));
+
+
+        IReadOnlyList<EntityTreeNodeDto> tree = await _sut.Handle(new GetEntityTreeQuery(ConnectionId), CancellationToken.None);
+
+
+        tree.Count.ShouldBe(2);
+        tree[0].Kind.ShouldBe(EntityKind.Queue);
+        tree[1].Kind.ShouldBe(EntityKind.Exchange);
+        tree[1].Children.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Handle_TypeNamePropertiesAndOperations_FlowToEntityAndSubQueueNodes()
+    {
+        EntityProperty ttl = new("Arguments", "Message TTL", "5 s") { Key = "x-message-ttl" };
+        MessagingEntity queue = new()
+        {
+            Path = "queues/activity",
+            Name = "activity",
+            Kind = EntityKind.Queue,
+            TypeName = "stream",
+            Operations = new EntityOperations { CanPurge = false, Reason = "append-only" },
+            Properties = [ttl],
+        };
+        _provider.ListEntitiesAsync(Arg.Any<CancellationToken>())
+            .Returns(TestAsyncEnumerable.Of(queue));
+
+
+        IReadOnlyList<EntityTreeNodeDto> tree = await _sut.Handle(new GetEntityTreeQuery(ConnectionId), CancellationToken.None);
+
+
+        EntityTreeNodeDto node = tree.ShouldHaveSingleItem();
+        node.TypeName.ShouldBe("stream");
+        node.Properties.ShouldBe([ttl]);
+        node.Operations.CanPurge.ShouldBeFalse();
+        node.Children.ShouldAllBe(child => child.TypeName == "stream" && child.Properties.Count == 1 && !child.Operations.CanPurge);
     }
 
     private static void AssertSubQueueChildren(EntityTreeNodeDto entityNode)

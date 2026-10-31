@@ -72,6 +72,8 @@ implemented in `DependencyRuleTests`.
   `MessagingToolbox.Providers.AzureServiceBus.Tests/Integration/`: tests use `[EmulatorFact]`
   and `[Trait("Category", "Emulator")]`, and are skipped unless
   `MESSAGINGTOOLBOX_EMULATOR_TESTS=true`, so a plain `dotnet test` never starts containers.
+  The same job runs the RabbitMQ round-trips (`MessagingToolbox.Providers.RabbitMQ.Tests/Integration/`,
+  `[BrokerFact]`, same trait and switch) against a `rabbitmq:4.1-management` container.
   Run them locally with
   `MESSAGINGTOOLBOX_EMULATOR_TESTS=true dotnet test tests/MessagingToolbox.Providers.AzureServiceBus.Tests --filter Category=Emulator`.
   Once enabled, a container that fails to start fails the tests; they never pass silently.

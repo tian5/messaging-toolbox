@@ -1,8 +1,10 @@
 using MessagingToolbox.Abstractions;
+using MessagingToolbox.Abstractions.Errors;
 using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Features.Messages.Commands.SettleBySequence;
 using MessagingToolbox.Application.Services;
+using MessagingToolbox.Application.Tests.Common;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -23,6 +25,7 @@ public class SettleBySequenceCommandHandlerTests
     {
         _providerFactory = Substitute.For<IMessagingProviderFactory>();
         _provider = Substitute.For<IMessagingProvider>();
+        _provider.Capabilities.Returns(TestCapabilities.Full);
         _providerFactory.GetProviderAsync(ConnectionId, Arg.Any<CancellationToken>()).Returns(_provider);
         _connectionCatalog = Substitute.For<IConnectionCatalog>();
         _auditLog = Substitute.For<IAuditLog>();
@@ -99,5 +102,19 @@ public class SettleBySequenceCommandHandlerTests
             Arg.Any<MessageSubQueue>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_SequenceNumbersUnsupported_ThrowsWithoutSettling()
+    {
+        _provider.Capabilities.Returns(TestCapabilities.Full with { SupportsSequenceNumbers = false });
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => _sut.Handle(
+            new SettleBySequenceCommand(ConnectionId, "orders", MessageSubQueue.DeadLetter, SettlementOperation.Complete, [11]),
+            CancellationToken.None).AsTask());
+
+
+        await _provider.DidNotReceiveWithAnyArgs().SettleBySequenceNumbersAsync(default!, default);
     }
 }

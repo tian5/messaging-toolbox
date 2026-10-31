@@ -55,12 +55,9 @@
                     <tr class="@(Selected == message ? "selected" : null)"
                         @onclick="() => SelectedChanged.InvokeAsync(message)">
                         <td class="select-col" @onclick:stopPropagation>
-                            @if (message.SequenceNumber is not null)
-                            {
-                                <input type="checkbox"
-                                       checked="@(SelectedSequences.Contains(message.SequenceNumber.Value))"
-                                       @onclick="() => SelectionToggled.InvokeAsync(message.SequenceNumber.Value)" />
-                            }
+                            <input type="checkbox"
+                                   checked="@(SelectedKeys.Contains(message.RowKey))"
+                                   @onclick="() => SelectionToggled.InvokeAsync(message.RowKey)" />
                         </td>
                         <td>
                             @message.SequenceNumber
@@ -147,11 +144,12 @@
     [Parameter]
     public EventCallback<MessageDto> SelectedChanged { get; set; }
 
+    /// <summary>Row keys (<see cref="MessageDto.RowKey"/>) of the selected messages.</summary>
     [Parameter]
-    public IReadOnlySet<long> SelectedSequences { get; set; } = new HashSet<long>();
+    public IReadOnlySet<string> SelectedKeys { get; set; } = new HashSet<string>();
 
     [Parameter]
-    public EventCallback<long> SelectionToggled { get; set; }
+    public EventCallback<string> SelectionToggled { get; set; }
 
     // True selects every loaded message, false clears the whole selection.
     [Parameter]
@@ -170,10 +168,9 @@
     private IJSObjectReference? _module;
     private bool _indeterminate;
 
-    private int SelectableCount => Messages?.Count(message => message.SequenceNumber is not null) ?? 0;
+    private int SelectableCount => Messages?.Count ?? 0;
 
-    private int SelectedCount => Messages?.Count(message => message.SequenceNumber is not null
-        && SelectedSequences.Contains(message.SequenceNumber.Value)) ?? 0;
+    private int SelectedCount => Messages?.Count(message => SelectedKeys.Contains(message.RowKey)) ?? 0;
 
     private bool AllSelected => SelectableCount > 0 && SelectedCount == SelectableCount;
 

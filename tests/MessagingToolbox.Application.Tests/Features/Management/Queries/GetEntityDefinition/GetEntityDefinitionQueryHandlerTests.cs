@@ -29,7 +29,7 @@ public class GetEntityDefinitionQueryHandlerTests
     public async Task Handle_ReturnsMappedDefinition()
     {
         EntityDefinition definition = new(
-            "events/subscriptions/processor",
+            "processor",
             EntityKind.Subscription,
             "events",
             new Dictionary<string, object?> { ["LockDuration"] = TimeSpan.FromMinutes(2) });
@@ -42,7 +42,7 @@ public class GetEntityDefinitionQueryHandlerTests
             CancellationToken.None);
 
 
-        result.Path.ShouldBe("events/subscriptions/processor");
+        result.Name.ShouldBe("processor");
         result.Kind.ShouldBe(EntityKind.Subscription);
         result.ParentPath.ShouldBe("events");
         result.Options["LockDuration"].ShouldBe(TimeSpan.FromMinutes(2));

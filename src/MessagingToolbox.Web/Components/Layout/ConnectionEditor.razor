@@ -1,13 +1,23 @@
 @inherits ToolboxComponentBase
+@using MessagingToolbox.Web.Services.Helpers
 
 @* Add/edit form for saved connections (FR-1.1). On edit, an empty connection string keeps the stored one. *@
 <div class="connection-editor">
     <label for="editor-name">Display name</label>
     <input id="editor-name" @bind="_displayName" placeholder="Local emulator" />
 
+    @* The broker kind is fixed once saved: a stored connection string only makes sense for its broker. *@
+    <label for="editor-kind">Broker</label>
+    <select id="editor-kind" @bind="_kind" disabled="@(Existing is not null)">
+        @foreach (ProviderKind kind in Enum.GetValues<ProviderKind>())
+        {
+            <option value="@kind">@ProviderKindLabels.LabelOf(kind)</option>
+        }
+    </select>
+
     <label for="editor-cs">Connection string</label>
     <input id="editor-cs" type="password" @bind="_connectionString"
-           placeholder="@(Existing is null ? "Endpoint=sb://…" : "unchanged if left empty")" />
+           placeholder="@(Existing is null ? ProviderKindLabels.ConnectionStringPlaceholderOf(_kind) : "unchanged if left empty")" />
 
     @if (_error is not null)
     {
@@ -31,6 +41,7 @@
     public EventCallback OnCancel { get; set; }
 
     private string _displayName = string.Empty;
+    private ProviderKind _kind = ProviderKind.AzureServiceBus;
     private string _connectionString = string.Empty;
     private bool _saving;
     private string? _error;
@@ -40,6 +51,7 @@
         if (Existing is not null)
         {
             _displayName = Existing.DisplayName;
+            _kind = Existing.Kind;
         }
     }
 
@@ -50,7 +62,7 @@
 
         try
         {
-            await Mediator.Send(new SaveConnectionCommand(Existing?.Id, _displayName.Trim(), _connectionString.Trim(), Existing?.Kind ?? ProviderKind.AzureServiceBus));
+            await Mediator.Send(new SaveConnectionCommand(Existing?.Id, _displayName.Trim(), _connectionString.Trim(), _kind));
             await OnSaved.InvokeAsync();
         }
         catch (Exception exception)

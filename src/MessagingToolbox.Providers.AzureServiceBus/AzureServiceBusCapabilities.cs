@@ -12,15 +12,25 @@ public static class AzureServiceBusCapabilities
     /// Cloud namespace: full data and management plane. The size ceiling uses the premium-tier
     /// maximum; the broker stays authoritative on smaller tiers.
     /// </summary>
-    public static readonly ProviderCapabilities Cloud = new(
-        CanManageEntities: true,
-        CanManageRules: true,
-        CanPeek: true,
-        CanReceiveSettle: true,
-        SupportsSessions: true,
-        SupportsScheduling: true,
-        SupportsTransactions: true,
-        MaxMessageSizeBytes: 100 * 1024 * 1024);
+    public static readonly ProviderCapabilities Cloud = new()
+    {
+        CanManageEntities = true,
+
+        // Subscription rules (FR-6.3) aren't implemented yet; the provider describes no routing rule type.
+        CanManageRules = false,
+        CanMoveMessages = false,
+        CanPeek = true,
+        CanReceiveSettle = true,
+        SupportsSessions = true,
+        SupportsScheduling = true,
+        SupportsTransactions = true,
+        SupportsDeadLetterSubQueue = true,
+        SupportsDeadLetterReason = true,
+        SupportsDeferral = true,
+        SupportsSequenceNumbers = true,
+        SupportsLockExpiry = true,
+        MaxMessageSizeBytes = 100 * 1024 * 1024,
+    };
 
     /// <summary>
     /// Azure Service Bus emulator: data plane plus a probed management plane. The ≥ 2.0.0 emulator
@@ -28,13 +38,21 @@ public static class AzureServiceBusCapabilities
     /// <see cref="ProviderCapabilities.CanManageEntities"/> is flipped to <see langword="true"/>.
     /// No transactions; max 256 KB messages.
     /// </summary>
-    public static readonly ProviderCapabilities Emulator = new(
-        CanManageEntities: false,
-        CanManageRules: false,
-        CanPeek: true,
-        CanReceiveSettle: true,
-        SupportsSessions: true,
-        SupportsScheduling: true,
-        SupportsTransactions: false,
-        MaxMessageSizeBytes: 256 * 1024);
+    public static readonly ProviderCapabilities Emulator = new()
+    {
+        CanManageEntities = false,
+        CanManageRules = false,
+        CanMoveMessages = false,
+        CanPeek = true,
+        CanReceiveSettle = true,
+        SupportsSessions = true,
+        SupportsScheduling = true,
+        SupportsTransactions = false,
+        SupportsDeadLetterSubQueue = true,
+        SupportsDeadLetterReason = true,
+        SupportsDeferral = true,
+        SupportsSequenceNumbers = true,
+        SupportsLockExpiry = true,
+        MaxMessageSizeBytes = 256 * 1024,
+    };
 }

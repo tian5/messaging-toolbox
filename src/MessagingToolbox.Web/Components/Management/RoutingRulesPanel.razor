@@ -1,0 +1,260 @@
+@* Routing rules from and to the selected entity (RabbitMQ bindings; ADR 22): list, add, delete.
+   Which entities a rule connects and the options it takes come from the provider. *@
+@using MessagingToolbox.Web.Services.Filtering
+@inherits ToolboxComponentBase
+@implements IDisposable
+
+@if (_rules.Type is { } type)
+{
+    <section class="routing-rules">
+        <div class="routing-rules-header">
+            <h4>@Plural(type.Label)</h4>
+            @if (_rules.CanManage && !_adding && (CanBeSource(type) || CanBeDestination(type)))
+            {
+                <button type="button" @onclick="() => StartAdd(type)">Add @type.Label…</button>
+            }
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="error-bar">@_error</div>
+        }
+
+        @if (_rules.Rules.Count == 0)
+        {
+            <p class="hint">@NoRulesHint(type)</p>
+        }
+        else
+        {
+            <table class="routing-rules-table">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>Entity</th>
+                        @foreach (EntityOptionDescriptor option in type.Options)
+                        {
+                            <th title="@option.Description">@option.Label</th>
+                        }
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (RoutingRule rule in OrderedRules())
+                    {
+                        bool outgoing = rule.SourcePath == Node.Path;
+                        <tr>
+                            <td class="direction" title="@(outgoing ? "Messages go from here to this entity" : "Messages come here from this entity")">@(outgoing ? "to" : "from")</td>
+                            <td class="mono">@(outgoing ? rule.DestinationPath : rule.SourcePath)</td>
+                            @foreach (EntityOptionDescriptor option in type.Options)
+                            {
+                                <td class="mono">@(EntityOptionForm.Format(rule.Options.GetValueOrDefault(option.Key)) is { Length: > 0 } value ? value : "—")</td>
+                            }
+                            <td>
+                                @if (_rules.CanManage)
+                                {
+                                    <button type="button" class="danger" disabled="@_busy" @onclick="() => ConfirmDelete(rule)">Delete</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        @if (_adding)
+        {
+            <div class="entity-form routing-rule-form">
+                @if (CanBeSource(type) && CanBeDestination(type))
+                {
+                    <label>
+                        Direction
+                        <select value="@(_outgoing ? "to" : "from")" @onchange="OnDirectionChanged">
+                            <option value="to">Route from @Node.Name to…</option>
+                            <option value="from">Route to @Node.Name from…</option>
+                        </select>
+                    </label>
+                }
+                <label>
+                    @(_outgoing ? "Destination" : "Source")
+                    <select @bind="_otherPath">
+                        <option value="">— select —</option>
+                        @foreach (EntityTreeNodeDto candidate in Candidates(type))
+                        {
+                            <option value="@candidate.Path">@candidate.Path</option>
+                        }
+                    </select>
+                </label>
+                <EntityOptionInputs Options="type.Options" Form="_form" />
+                <div class="confirm-actions">
+                    <button class="primary" disabled="@(_busy || string.IsNullOrEmpty(_otherPath))" @onclick="() => CreateAsync(type)">@(_busy ? "Saving…" : $"Add {type.Label}")</button>
+                    <button disabled="@_busy" @onclick="() => _adding = false">Cancel</button>
+                </div>
+            </div>
+        }
+    </section>
+
+    <ConfirmDialog Visible="_pendingDelete is not null"
+                   Title="@($"Delete {type.Label}")"
+                   Message="@DeleteMessage(type)"
+                   ConfirmLabel="Delete"
+                   OnConfirm="DeleteConfirmedAsync"
+                   OnCancel="() => _pendingDelete = null" />
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public Guid ConnectionId { get; set; }
+
+    [Parameter, EditorRequired]
+    public EntityTreeNodeDto Node { get; set; } = default!;
+
+    /// <summary>The connection's tree: candidates for the other end of a new rule.</summary>
+    [Parameter]
+    public IReadOnlyList<EntityTreeNodeDto> Entities { get; set; } = [];
+
+    private readonly CancellationTokenSource _disposalTokenSource = new();
+    private readonly EntityOptionForm _form = new();
+
+    private RoutingRulesDto _rules = RoutingRulesDto.None;
+    private (Guid ConnectionId, string Path, IReadOnlyList<EntityTreeNodeDto> Entities)? _loadedFor;
+    private string? _error;
+    private bool _busy;
+    private bool _adding;
+    private bool _outgoing = true;
+    private string _otherPath = string.Empty;
+    private RoutingRule? _pendingDelete;
+
+    // Reload when the entity changes, and when the tree reloads (another entity, or a rule, may have changed).
+    protected override async Task OnParametersSetAsync()
+    {
+        (Guid, string, IReadOnlyList<EntityTreeNodeDto>) key = (ConnectionId, Node.Path, Entities);
+        if (_loadedFor == key)
+        {
+            return;
+        }
+
+        if (_loadedFor?.ConnectionId != ConnectionId || _loadedFor?.Path != Node.Path)
+        {
+            _adding = false;
+            _error = null;
+            _rules = RoutingRulesDto.None;
+        }
+
+        _loadedFor = key;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _rules = await Mediator.Send(new GetRoutingRulesQuery(ConnectionId, Node.Path), _disposalTokenSource.Token);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private bool CanBeSource(RoutingRuleType type) => type.SourceKinds.Contains(Node.Kind);
+
+    private bool CanBeDestination(RoutingRuleType type) => type.DestinationKinds.Contains(Node.Kind);
+
+    private IEnumerable<RoutingRule> OrderedRules() => _rules.Rules
+        .OrderBy(rule => rule.SourcePath == Node.Path ? 0 : 1)
+        .ThenBy(rule => rule.SourcePath == Node.Path ? rule.DestinationPath : rule.SourcePath, StringComparer.Ordinal);
+
+    private IEnumerable<EntityTreeNodeDto> Candidates(RoutingRuleType type)
+    {
+        IReadOnlyList<EntityKind> kinds = _outgoing ? type.DestinationKinds : type.SourceKinds;
+        return EntityTreeFiltering.Flatten(Entities)
+            .Where(entity => !entity.IsSubQueueNode && entity.Path != Node.Path && kinds.Contains(entity.Kind))
+            .OrderBy(entity => entity.Path, StringComparer.Ordinal);
+    }
+
+    private void StartAdd(RoutingRuleType type)
+    {
+        _outgoing = CanBeSource(type);
+        _otherPath = string.Empty;
+        _form.LoadDefaults(type.Options);
+        _error = null;
+        _adding = true;
+    }
+
+    private void OnDirectionChanged(ChangeEventArgs args)
+    {
+        _outgoing = args.Value?.ToString() == "to";
+        _otherPath = string.Empty;
+    }
+
+    private async Task CreateAsync(RoutingRuleType type)
+    {
+        if (!_form.TryBuild(type.Options, out Dictionary<string, object?> options, out _error))
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            (string source, string destination) = _outgoing ? (Node.Path, _otherPath) : (_otherPath, Node.Path);
+            await Mediator.Send(new CreateRoutingRuleCommand(ConnectionId, source, destination, options), _disposalTokenSource.Token);
+            _adding = false;
+            await LoadAsync();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void ConfirmDelete(RoutingRule rule)
+    {
+        _error = null;
+        _pendingDelete = rule;
+    }
+
+    private async Task DeleteConfirmedAsync()
+    {
+        if (_pendingDelete is not { } rule)
+        {
+            return;
+        }
+
+        _pendingDelete = null;
+        _busy = true;
+        try
+        {
+            await Mediator.Send(new DeleteRoutingRuleCommand(ConnectionId, rule), _disposalTokenSource.Token);
+            await LoadAsync();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string DeleteMessage(RoutingRuleType type) => _pendingDelete is { } rule
+        ? $"Delete the {type.Label} from {rule.SourcePath} to {rule.DestinationPath}? Messages stop being routed along it."
+        : string.Empty;
+
+    private string NoRulesHint(RoutingRuleType type) => CanBeSource(type) || CanBeDestination(type)
+        ? $"No {Plural(type.Label).ToLowerInvariant()} from or to this {Node.Kind.ToString().ToLowerInvariant()}."
+        : $"{Plural(type.Label)} don't apply to a {Node.Kind.ToString().ToLowerInvariant()}.";
+
+    private static string Plural(string label) => $"{char.ToUpperInvariant(label[0])}{label[1..]}s";
+
+    public void Dispose()
+    {
+        _disposalTokenSource.Cancel();
+        _disposalTokenSource.Dispose();
+    }
+}

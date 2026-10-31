@@ -10,13 +10,12 @@ public static class DependencyInjection
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Registers the Azure Service Bus provider. The factory is a singleton because AMQP
-        /// clients are expensive and cached per connection, while Mediator handlers stay scoped
-        /// (architecture doc §5).
+        /// Registers the Azure Service Bus provider builder. The shared provider factory
+        /// (Infrastructure) caches the providers it builds per connection (architecture doc §5).
         /// </summary>
         public IServiceCollection AddAzureServiceBusProvider(IConfiguration configuration)
         {
-            services.TryAddSingleton<IMessagingProviderFactory, MessagingProviderFactory>();
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagingProviderBuilder, AzureServiceBusProviderBuilder>());
             services.TryAddSingleton<IAzureServiceBusManagementFactory, AzureServiceBusManagementFactory>();
 
             return services;

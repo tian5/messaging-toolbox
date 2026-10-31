@@ -82,20 +82,28 @@ provider can target (DevOps decision #3). **Domain** holds only the persisted to
 ```
 Abstractions/
   Messaging/
-    MessagingEntity.cs        # discriminated model: Queue | Topic | Subscription (path, kind, status)
+    MessagingEntity.cs        # discriminated model: Queue | Topic | Subscription | Exchange
+                              # (path, kind, status, PeekMode NonDestructive/Requeue — ADR 17);
+                              # display-only TypeName (broker flavour: "stream", "topic", …) and
+                              # Properties (EntityProperty: group, label, formatted value, raw key)
+    EntityProperty.cs / EntityPropertyFormat.cs  # display-only entity settings + shared formatting
+    EntityOperations.cs       # per-entity narrowing of the capabilities (receive, settle, purge) — ADR 20
     EntityRuntimeInfo.cs      # active/scheduled/dead-letter/transfer counts, size, timestamps;
                               # IsApproximate marks sampled counts that hit the cap;
                               # DeferredMessageCount (of the active ones) when sampled
     ToolboxMessage.cs         # body (byte[]), content type, typed system props, app props,
                               # settlement metadata (sequence number, State Active/Deferred/Scheduled,
-                              # lock token, delivery count, enqueued time, DLQ reason/description)
-    SubscriptionRuleInfo.cs   # filter kind (SQL/correlation), expression, action
+                              # lock token, delivery count, enqueued time, DLQ reason/description),
+                              # RoutingKey, read-only BrokerProperties for display (ADR 17)
+    RoutingRuleType.cs / RoutingRule.cs  # provider-described routing rules (RabbitMQ bindings) — ADR 22
     ProviderCapabilities.cs   # record of flags, see below
     Enums.cs                  # EntityKind, MessageSubQueue (Active/Scheduled/DeadLetter/TransferDeadLetter),
-                              # MessageState, SettlementOperation, ReceiveMode, ProviderKind, MessagingEntityStatus
+                              # MessageState, SettlementOperation, ReceiveMode, ProviderKind, MessagingEntityStatus,
+                              # PeekMode
     PeekRequest.cs / ReceiveRequest.cs / SettleRequest.cs / SettleBySequenceRequest.cs
     ReceiveDeferredRequest.cs / DeferredMessageReference.cs
-    EntityDefinition.cs / ResubmitOverrides.cs
+    EntityDefinition.cs / ResubmitOverrides.cs  # definitions name the entity; the provider builds its path (ADR 21)
+    EntityTypeDescriptor.cs / EntityOptionDescriptor.cs  # provider-supplied management schema (ADR 21)
   Errors/                     # MessagingProviderException and its subclasses:
                               # NotSupportedByProvider / MessagingEntityNotFound / MessageLockLost /
                               # MessagingProviderThrottled / MessagingProviderUnavailable
@@ -113,17 +121,22 @@ Domain/
 ```
 
 ```csharp
-public record ProviderCapabilities(
-    bool CanManageEntities,        // create/update/delete queues, topics, subscriptions
-    bool CanManageRules,           // subscription filters/actions
-    bool CanPeek,                  // non-destructive inspection
-    bool CanReceiveSettle,         // peek-lock + complete/abandon/defer/dead-letter
-    bool SupportsSessions,
-    bool SupportsScheduling,
-    bool SupportsTransactions,
-    long MaxMessageSizeBytes)      // 256 KB on emulator, 100 MB premium ASB, etc.
+public sealed record ProviderCapabilities   // required init properties (ADR 17)
 {
-    string? ManagementUnavailableReason { get; init; } // why CanManageEntities is off, shown in the UI
+    bool CanManageEntities;            // create/update/delete queues, topics, subscriptions, exchanges
+    bool CanManageRules;               // routing rules: subscription filters/actions, exchange bindings
+    bool CanMoveMessages;              // broker-side move of a queue's messages (RabbitMQ shovel, ADR 23)
+    bool CanPeek;                      // inspection without consuming; cost per entity: MessagingEntity.PeekMode
+    bool CanReceiveSettle;             // settleable receive + complete/abandon (+ dead-letter/defer where supported)
+    bool SupportsSessions;
+    bool SupportsScheduling;
+    bool SupportsTransactions;
+    bool SupportsDeadLetterSubQueue;   // broker-managed DLQ per entity (the tree's DLQ node, "To DLQ")
+    bool SupportsDeferral;             // defer + receive deferred by sequence number (ADR 13)
+    bool SupportsSequenceNumbers;      // peek paging, live-watch cursor, settle/cancel by sequence number
+    bool SupportsLockExpiry;           // held messages expire and can be renewed (ADR 10)
+    long MaxMessageSizeBytes;          // 256 KB on emulator, 100 MB premium ASB, etc.
+    string? ManagementUnavailableReason; // optional: why CanManageEntities is off, shown in the UI
 }
 ```
 
@@ -144,7 +157,7 @@ capability is present and otherwise shows that reason.
 interfaces live in `Application/Core/Interfaces`.
 
 ```csharp
-public interface IMessagingProvider   // Abstractions
+public interface IMessagingProvider : IAsyncDisposable   // Abstractions
 {
     ProviderKind Kind { get; }
     ProviderCapabilities Capabilities { get; }
@@ -165,6 +178,7 @@ public interface IMessagingProvider   // Abstractions
     Task<IReadOnlyList<long>> SettleBySequenceNumbersAsync(SettleBySequenceRequest request,
         CancellationToken ct);                                 // DLQ sub-queues only (ADR 10); returns settled sequences
     Task<long> PurgeAsync(string entityPath, MessageSubQueue subQueue, CancellationToken ct);  // returns deleted count; drains every available session, then deferred messages
+    Task<long> MoveMessagesAsync(string sourcePath, string destinationPath, CancellationToken ct);  // broker-side move of every ready message (ADR 23)
     Task<IReadOnlyList<long>> CancelScheduledAsync(string entityPath, IReadOnlyList<long> sequenceNumbers, CancellationToken ct);
     Task<MessagingEntity> CreateOrUpdateEntityAsync(EntityDefinition definition, CancellationToken ct);
     Task DeleteEntityAsync(string entityPath, CancellationToken ct);
@@ -173,11 +187,17 @@ public interface IMessagingProvider   // Abstractions
         ToolboxMessage original, ResubmitOverrides overrides, CancellationToken ct);
 }
 
-public interface IMessagingProviderFactory
+public interface IMessagingProviderFactory   // implemented once, in Infrastructure (ADR 17)
 {
     // Resolves (and caches) the provider + underlying clients for a connection profile.
     Task<IMessagingProvider> GetProviderAsync(Guid connectionId, CancellationToken ct);
     Task DisposeAsync(Guid connectionId);   // dispose cached clients on profile change/removal
+}
+
+public interface IMessagingProviderBuilder   // one per broker, registered by its provider project
+{
+    ProviderKind Kind { get; }
+    Task<IMessagingProvider> CreateAsync(ConnectionInfo connection, CancellationToken ct);
 }
 
 public interface IToolboxDbContext : IAsyncDisposable   // single context — the read/readonly split was dropped (ADR 7)
@@ -231,7 +251,7 @@ Connections/    GetConnections, SaveConnection, DeleteConnection, TestConnection
 Explorer/       GetEntityTree, GetEntityRuntimeInfo, RefreshCounts
 Messages/       PeekMessages, ReceiveMessages, ReceiveForSettlementMessages, GetHeldLockStates,
                 SendMessage, ResendMessage, RepairAndResubmitMessage, RequeueMessages,
-                SettleMessages, SettleBySequence, PurgeEntity, GetPurgePreview,
+                SettleMessages, SettleBySequence, PurgeEntity, GetPurgePreview, MoveMessages,
                 DeleteMessages, DeadLetterMessages, ExportMessages, ImportMessages
 Templates/      GetCannedMessages, SaveCannedMessage, DeleteCannedMessage, RenderTemplate
 Audit/          GetAuditEntries
@@ -271,7 +291,7 @@ Providers.AzureServiceBus/
   AzureServiceBusManagement.cs        # ServiceBusAdministrationClient wrapper (cloud + emulator)
   IAzureServiceBusManagement.cs       # test seam for the management wrapper
   AzureServiceBusMessageMapper.cs     # SDK message <-> ToolboxMessage mapping
-  MessagingProviderFactory.cs         # singleton cache of providers/clients per connection
+  AzureServiceBusProviderBuilder.cs   # IMessagingProviderBuilder for ProviderKind.AzureServiceBus
   ServiceBusEntityPath.cs             # "{topic}/subscriptions/{name}" path splitting
   Telemetry.cs                        # shared ActivitySource
   Emulator/
@@ -349,8 +369,78 @@ emulator, which the provider treats as the session requirement. Purge drains as 
 peeks for the deferred leftovers and deletes them by sequence number with receive-and-delete.
 
 Keeping all emulator quirks in this project
-is what lets Application stay broker-agnostic. A future `Providers.RabbitMQ` implements the same
-contract — that is the abstraction's proof case.
+is what lets Application stay broker-agnostic.
+
+### `Providers.RabbitMQ`
+
+The second provider, and the abstraction's proof case:
+
+```
+Providers.RabbitMQ/
+  RabbitMqProvider.cs                 # IMessagingProvider over RabbitMQ.Client 7 (AMQP 0-9-1), one vhost
+  RabbitMqProviderBuilder.cs          # IMessagingProviderBuilder for ProviderKind.RabbitMQ
+  RabbitMqCapabilities.cs             # no DLQ sub-queue, sequence numbers, sessions, deferral, scheduling
+  RabbitMqConnectionSettings.cs       # AMQP URI + management URL (host-supplied, ;Management=, or :15672)
+  RabbitMqEntityPath.cs               # "queues/{name}" | "exchanges/{name}" (names may collide across kinds)
+  RabbitMqMessageMapper.cs            # AMQP properties/headers <-> ToolboxMessage; broker headers -> BrokerProperties
+  Management/                         # thin HttpClient over the management API (discovery, counts, probe, shovels)
+  Errors/RabbitMqExceptionTranslator.cs
+  DependencyInjection.cs
+```
+
+- **Discovery** needs the management HTTP API (AMQP can't list anything). It is probed like the
+  emulator admin endpoint: success is final, a failure is retried after 15 s and explained in
+  `ManagementUnavailableReason`; meanwhile config-listed queues are shown and counted over AMQP.
+  The default exchange and `amq.*` exchanges are hidden. Internal exchanges are listed, with
+  `EntityOperations.CanSend` off (the broker refuses publishes to them).
+- **Counts:** ready messages come from a passive declare (the management statistics refresh only
+  every few seconds, so a count right after a send would lag), plus the unacknowledged count from
+  the management API. Streams use the management count.
+- **Data plane:** one AMQP connection per provider, opened lazily (a starting broker doesn't fail
+  the connection list) and reopened on the next operation after a failure; a channel per
+  operation; peeks, receives and purges on one queue are serialized.
+- **Peek (ADR 18):** classic and quorum queues report `PeekMode.Requeue`: the provider gets
+  messages without auto-ack on its own channel and nacks them all with requeue at the end, never
+  rejects. Streams report `PeekMode.NonDestructive` and are read by a consumer from offset
+  `first`, with the prefetch capping deliveries.
+- **Sequence numbers:** none on the connection (`SupportsSequenceNumbers` is false). Stream
+  messages report their offset as `SequenceNumber` and streams set
+  `MessagingEntity.HasSequenceNumbers` (ADR 24); every other message reports none. The grid selects rows by
+  `MessageDto.RowKey`, assigned per load (sequence number, else lock token, else position).
+- **Settlement (ADR 19):** settle-later receives hold their deliveries on one channel per queue
+  (`HeldDeliveries`, lock token `{heldId}:{deliveryTag}`). Complete = ack, Abandon = nack with
+  requeue, DeadLetter = reject without requeue, refused unless the queue has a dead-letter exchange
+  (argument or policy, read from the management API and reported as
+  `MessagingEntity.DeadLetterExchange`). Held deliveries don't expire: a channel idle for 5 minutes
+  is released (nack with requeue, then close), and so is every held channel on dispose. A
+  dead-lettered message reports `DeadLetterSourcePath` from `x-first-death-queue`, the default
+  target of a resubmit; `PrepareResubmitAsync` clones the typed and application properties only.
+- **Entity details:** the queue and exchange type (classic/quorum/stream, direct/topic/…) is
+  reported as `MessagingEntity.TypeName`; durable/auto-delete/exclusive, the `x-*` arguments and
+  the effective policy (one label table, so `x-message-ttl` and a policy's `message-ttl` read the
+  same), consumers and unacknowledged counts as `Properties`. Both are display-only: the tree
+  and details panel render them and never branch on them, so behaviour stays on `PeekMode` and
+  the capability flags (ADR 5/17). Azure Service Bus fills `Properties` from the administration
+  client (lock duration, TTL, max size, …) and leaves `TypeName` null.
+- **Streams (ADR 20, ADR 24):** report `EntityOperations` without receive, settle-later, purge
+  and move, with the reason as the hint; the UI offers only peek and send, and the provider still
+  refuses the rest. A peek starts at the first retained message, an offset (`FromSequenceNumber`)
+  or a time (`PeekRequest.FromTime`, sent as an AMQP timestamp: the broker starts at the first
+  chunk written in or after that second). Live watch follows a stream with its offset as the cursor.
+  Classic and quorum queues refuse a start position; they are read from the head.
+- **Bindings (ADR 22):** the provider's routing rules: from an exchange to a queue or exchange,
+  with a routing key and, for headers exchanges, match arguments (`key=value` pairs). Listed,
+  created and deleted through the management API, identified by its properties key; the default
+  exchange's implicit binding to every queue is left out, since it can't be changed. Shown in a
+  bindings panel in the entity details, both directions.
+- **Move (ADR 23):** "Move all…" moves every ready message of a queue to another queue through a
+  dynamic shovel (`src-delete-after: queue-length`, `ack-mode: on-confirm`, both queues
+  predeclared, so it never declares one). `CanMoveMessages` needs the management API and the
+  shovel management plugin, probed through `/api/shovels/{vhost}`; the playground and the broker
+  tests enable it. The provider waits up to 30 s for the shovel to delete itself, fails fast when
+  the broker reports it terminated, and otherwise stops it; it never leaves a shovel behind.
+- **Send:** queues through the default exchange, exchanges with `ToolboxMessage.RoutingKey`;
+  publisher confirms plus `mandatory`, so an unroutable message is an error, not a silent drop.
 
 ---
 
@@ -362,7 +452,9 @@ connection profiles, canned messages, and the audit log of destructive operation
 `ChangeTracker.Entries<EntityBase>()`, driven by the injected `TimeProvider`; `DateTimeOffset`
 values go through a binary converter (SQLite limitation workaround). Handlers query through the single `IToolboxDbContext`
 directly (ADR 7), each operation on its own context from `IToolboxDbContextFactory` (ADR 11). `ConnectionCatalog` merges config-seeded (Aspire/env) and saved connections at
-read time. Connection strings are stored protected (ASP.NET Core Data Protection, keys persisted
+read time. `Messaging/MessagingProviderFactory` is the singleton provider cache: it dispatches
+creation to the `IMessagingProviderBuilder` registered for the connection's kind (each provider
+project adds its builder with `TryAddEnumerable`) and owns eviction and disposal (ADR 17). Connection strings are stored protected (ASP.NET Core Data Protection, keys persisted
 under the data directory), never logged. `ToolboxDbInitializer` creates the schema on startup
 (`EnsureCreated` for now — real migrations once the schema stabilizes) and never takes the host
 down on failure.
@@ -414,6 +506,9 @@ Aspire.Hosting/
   MessagingToolboxContainerImageTags.cs # registry/image coordinates; tag = package version
                                         # for v* tag builds, else `edge`
   MessagingToolboxConnectionsAnnotation.cs # per-host next-connection index + attached brokers
+  Brokers/                              # one adapter per broker resource type: provider kind +
+                                        # broker-specific env (ASB: admin endpoint, modeled
+                                        # entities; RabbitMQ: management endpoint)
 ```
 
 - `AddMessagingToolbox("toolbox", messaging)` takes `IResourceBuilder<IResourceWithConnectionString>`,
@@ -444,6 +539,11 @@ Aspire.Hosting/
   `ToolboxOptions__Connections__{i}__AdminEndpoint`. It is an endpoint reference, so it resolves to
   the container-network address for the container and to the mapped host port for a project
   resource (see §6).
+- For a RabbitMQ server (`AddRabbitMQ`), the connection kind is `RabbitMQ` and, when
+  `WithManagementPlugin()` is on, its `management` endpoint is passed as `AdminEndpoint` (a
+  reference again, so it resolves for container and project consumers). Aspire models no queues
+  or exchanges; discovery goes through that API. `rabbitMq.WithMessagingToolbox()` is the
+  one-line form. Plain connection-string resources keep mapping to Azure Service Bus.
 - Dashboard commands ("Open toolbox", "Send test message…", "Purge DLQ…") with Interaction
   Service typed inputs are designed but deferred — nothing is implemented yet. They remain
   documented as local-only (not available on ACA-hosted dashboards).
@@ -624,3 +724,157 @@ Aspire.Hosting/
     dead-letter queue. Live watch (ADR 15) stays the opt-in way to see new arrivals. Rejected:
     re-peeking only when the grid was loaded by peek (still an unrequested load), and an
     automatic reload behind a setting (one more toggle for behavior nobody asked for).
+17. **Provider builders, a neutral factory, and capability flags for broker-specific features** —
+    *(extends ADR 5 for a second broker.)* The provider factory lived in the Azure Service Bus
+    project, switched on `ProviderKind`, and was registered with `TryAddSingleton`, so a second
+    provider could not plug in. The cache moved unchanged to Infrastructure
+    (`Messaging/MessagingProviderFactory`); each provider contributes an
+    `IMessagingProviderBuilder` for its kind, and `IMessagingProvider` is `IAsyncDisposable` so the
+    cache no longer knows provider types. Features the contract had silently assumed are now
+    flags — `SupportsDeadLetterSubQueue`, `SupportsDeferral`, `SupportsSequenceNumbers`,
+    `SupportsLockExpiry` — and the tree, handlers and UI check them: the DLQ node, defer,
+    settle/remove by sequence number, the from-sequence control, lock renewal, and live watch.
+    Handlers that would otherwise act half-way (a requeue that sends clones but can't remove the
+    originals) check before the first broker call. `ProviderCapabilities` became a record of
+    `required init` properties, since twelve positional booleans were no longer readable.
+    Browsing cost is per entity, not per provider (`MessagingEntity.PeekMode`):
+    `NonDestructive` keeps the "browsing is side-effect free" rule; `Requeue` marks brokers
+    without a read-only browse, where a peek takes and requeues messages. A `Requeue` peek runs
+    only on an explicit Load, with the cost disclosed next to the button, and never from live
+    watch or count sampling. `EntityKind.Exchange` (routes, holds no messages),
+    `ToolboxMessage.RoutingKey` and read-only `BrokerProperties` give non-ASB brokers a place for
+    their routing and system metadata without more ASB-shaped top-level fields. Rejected: a
+    provider-kind switch in the UI (ADR 5), and one capability record per broker (every
+    consumer would need to know every broker).
+18. **RabbitMQ browse is a disclosed requeue-peek** — *(applies ADR 17's `PeekMode.Requeue`.)*
+    RabbitMQ has no read-only browse for classic and quorum queues: every tool, the management
+    UI's "Get messages" included, takes messages and puts them back. The provider gets up to the
+    requested count without auto-ack on a channel of its own, then nacks them all with requeue in
+    one call. Never reject: on quorum queues a reject (and a channel closing with unacked
+    messages) counts as a failed delivery toward `delivery-limit` and can dead-letter the message,
+    while a nack-requeue only bumps `x-acquired-count` (RabbitMQ 4.3). Verified against
+    RabbitMQ 4.1: repeated peeks return the same messages in order, leave the count unchanged and
+    don't raise the quorum delivery count. The side effects that remain (redelivered flag, the
+    messages invisible to consumers for the duration, possible reordering with active consumers)
+    are disclosed next to Load, and a requeue-peek runs only on that explicit Load — never from
+    live watch or counting (counts use passive declares and the management API). Peeks of one
+    queue are serialized, since two concurrent ones would each see part of it. Streams are logs,
+    read by offset without side effects. Rejected: no peek at all on queues (dead-letter queues,
+    the main thing to inspect, would need a destructive receive), and a per-connection opt-in
+    (one more switch for behavior every RabbitMQ tool already has).
+19. **RabbitMQ settlement on held channels; native reject as dead-letter; DLQs are plain
+    queues** — RabbitMQ has no message locks: a delivery fetched without auto-ack stays held by
+    the channel that received it until it is acked, nacked or rejected, or the channel closes. So
+    a settle-later receive keeps one channel per queue open while it holds deliveries, and lock
+    tokens name that channel by a random id (channel numbers are reused, so a stale token fails
+    cleanly instead of settling another delivery). Complete is ack, Abandon is nack with requeue.
+    Dead-letter is the broker's own `basic.reject` without requeue, so the message gets a real
+    `x-death` entry, exactly as if a consumer had rejected it; RabbitMQ can't attach a reason to a
+    reject (`SupportsDeadLetterReason` is false, the UI asks for none and the audit log keeps
+    what the user typed). A reject on a queue without a dead-letter exchange discards the message,
+    so the provider refuses it unless the queue's argument or policy names one, and the UI offers
+    dead-lettering only then. Nothing expires held deliveries while they keep messages from the
+    application under test: the UI has Release held (abandon everything in the load), a channel
+    idle for 5 minutes is released, and dispose releases everything — always nack with requeue
+    before closing, because a channel closing with unacked deliveries counts as a failed delivery
+    on quorum queues. RabbitMQ has no dead-letter sub-queue: a queue is a "DLQ" only by purpose,
+    bound to an exchange other queues dead-letter into, and one may serve many queues. The
+    explorer therefore shows it as the ordinary queue it is, with the source queue's dead-letter
+    exchange in its details, and offers "Copy / move to…" on every queue, defaulting to the queue
+    a message was dead-lettered from (`DeadLetterSourcePath`). Grid selection moved from sequence
+    numbers to per-load row keys, and export now writes the loaded selection instead of fetching
+    again (a re-peek isn't free on every broker). Rejected: a virtual DLQ child node (wrong for
+    shared DLQs, empty for ambiguous ones), and dead-lettering by republishing with a reason
+    header (no `x-death`, so not what applications see from real dead-lettering).
+20. **Per-entity operations narrow the connection's capabilities; entity details are
+    display-only** — Capabilities describe a connection, but entities on one connection can
+    differ: a RabbitMQ stream is a queue that can be peeked and sent to, but not consumed away,
+    settled or purged. `MessagingEntity.Operations` (`EntityOperations`: `CanReceive`,
+    `CanReceiveSettle`, `CanPurge`, plus a `Reason` shown as the hint) can only narrow: an
+    operation is offered when the capabilities *and* the entity allow it, and the default allows
+    everything, so a provider that never sets it behaves as before. The UI gates load modes, purge
+    and delete on it; handlers don't, because they receive a path rather than the entity and a
+    lookup would cost a discovery round-trip per command, so the provider stays the backstop and
+    still refuses what it can't do. Discovery that can't tell (RabbitMQ without the management API)
+    reports `All`. Alongside it, `MessagingEntity.TypeName` (the broker's own word for the entity,
+    e.g. `stream`, `quorum`, `topic`) and `Properties` (`EntityProperty`: group, label, value
+    formatted by the provider, raw key) carry broker detail for display only; the core renders
+    them and never branches on them. `EntityKind` stays a small closed set of roles the core reasons
+    about. Rejected: an `EntityKind.Stream` (a stream is still a queue, and kinds would multiply
+    per broker), free-string kinds with provider constants (Web can't reference providers, so it
+    would compare literals), and a full `ProviderCapabilities` per entity (most flags are
+    connection-wide and the precedence is unclear). Moving the existing `Kind`-based gating in the
+    Web layer (exchanges and topics can't be peeked, subscriptions can't be sent to) onto
+    provider-set operations is a follow-up.
+21. **Entity management is described by the provider; definitions name entities** — The
+    entity editor hard-coded the Service Bus settings, so a second broker couldn't use it, and
+    the Web layer built and parsed Service Bus paths. Providers now describe what they can
+    create through `IMessagingProvider.GetEntityTypes()`: one `EntityTypeDescriptor` per kind
+    (label, optional parent kind, help text) with `EntityOptionDescriptor`s (key, label, type
+    Text/Boolean/Integer/Duration/Choice, default, choices, `CreateOnly`). The editor renders that
+    schema and sends values typed by it (`bool`, `long`, `TimeSpan`, `string`), so the provider
+    reads exactly the keys and types it declared; the schema lives next to the code that applies
+    it (`AzureServiceBusEntityTypes`, `RabbitMqEntityTypes`) so the two can't drift. Options the
+    broker fixes when an entity is created are `CreateOnly` and read-only when editing; RabbitMQ
+    fixes all of them (a redeclaration with different arguments is refused), so an existing queue
+    or exchange opens read-only and later changes go through policies. `EntityDefinition` carries
+    the entity's `Name` (plus `ParentPath` for child types) instead of its path, and the provider
+    builds the path, so no layer above it knows `topic/subscriptions/x` or `queues/x`. RabbitMQ
+    declares and deletes through the management API, whose refusals carry the broker's reason
+    (shown as is), and enables `CanManageEntities` only while that API answers. Rejected:
+    per-broker editor components (every new broker would need UI work), and passing raw JSON
+    arguments (no validation, no labels).
+22. **Routing rules are described by the provider and managed per entity** — RabbitMQ routes by
+    bindings, which the toolbox could only show, not change; Service Bus has the analogous
+    subscription rules. Providers now describe their rules through
+    `IMessagingProvider.GetRoutingRuleType()`: a `RoutingRuleType` with a label, the entity kinds a
+    rule routes from and to, and its options (the ADR 21 `EntityOptionDescriptor`s), or null when
+    the broker has none. `ListRoutingRulesAsync(entityPath)` returns the `RoutingRule`s from or to
+    an entity (provider id, source path, destination path, options), and
+    `CreateRoutingRuleAsync`/`DeleteRoutingRuleAsync` change them, gated by `CanManageRules`,
+    audited, and confirmed in the UI before a delete. The entity details show a rules panel built
+    from that description (direction, the entity at the other end, one column per option), with
+    the options rendered by the same inputs as the entity editor. A rule change doesn't reload the
+    tree (nothing in it depends on routing), so the selection stays. RabbitMQ bindings are the first
+    implementation (exchange → queue or exchange; routing key; match arguments as `key=value`
+    pairs, compared as strings) and its `CanManageRules` follows the management API. Service Bus
+    subscription rules (FR-6.3) will implement the same contract; until then the provider
+    describes no rule type and its cloud profile no longer claims `CanManageRules`. The unused
+    `SubscriptionRuleInfo` is removed. Rejected: showing bindings only as entity properties (read
+    only, and hidden behind the properties toggle), and a per-broker bindings component.
+23. **Moving all messages is a broker-side operation behind `CanMoveMessages`** — Emptying a
+    RabbitMQ dead-letter queue back into its source (or anywhere else) through the toolbox would
+    take every message out and send it again: slow, and a crash in between loses or duplicates
+    messages. The broker can do it itself with a dynamic shovel, which is how its own management UI
+    moves messages. `IMessagingProvider.MoveMessagesAsync(source, destination)` moves every ready
+    message and returns how many; the new `CanMoveMessages` capability gates it, and
+    `EntityOperations.CanMoveMessages` narrows it per entity (streams can't be emptied). RabbitMQ
+    creates a shovel that takes the queue length at start, acks each message once the destination
+    confirmed it, and deletes itself; both queues are predeclared, so a move never declares (or
+    re-declares with other arguments) a queue, and a missing destination is refused before the
+    shovel starts. The provider polls until the shovel is gone, fails with the broker's reason when
+    the shovel terminates, and stops it after 30 s or on cancellation, keeping what moved so far
+    (at-least-once: a message in flight when stopped may arrive twice). The capability is probed
+    through the shovel management API, because a node's plugin list only appears once the
+    statistics collector has run. Moves are confirmed with the source's count and audited.
+    Service Bus has no broker-side move; its copies go through requeue (clone, then remove).
+    Rejected: client-side receive-and-send (not atomic per message, and slow), and treating the
+    shovel plugin as always present (a broker without it would fail only on use).
+24. **Entities can widen browsing: sequence numbers and a start time per entity** — *(amends ADR
+    20, which only narrows.)* A RabbitMQ stream is a log with offsets: it can be read from any
+    position and followed by live watch, but its connection has no sequence numbers, because
+    classic and quorum queues don't. `MessagingEntity.HasSequenceNumbers` says an entity's messages
+    carry stable, increasing sequence numbers *for browsing*: the UI offers "From seq" and live
+    watch when the connection's `SupportsSequenceNumbers` or the entity's flag is set. Operations
+    addressed by sequence number (scan-and-settle, cancel scheduled, removal by sequence) still
+    need the capability, so the flag widens nothing else. `MessagingEntity.CanPeekFromTime` and
+    `PeekRequest.FromTime` start a peek at a point in time (UTC in the UI, like the grid); a peek
+    sets at most one of the two starts (validated), and a provider refuses a start it can't honour
+    (Service Bus has no time start; RabbitMQ queues have no position at all). The start inputs live
+    in the connection's workspace, so one the selected entity can't use is ignored rather than
+    failing its load. The live-watch cursor became nullable, so a watch starts at the beginning
+    instead of after sequence number 0 (a stream's first offset). The same release adds
+    `EntityOperations.CanSend` for entities the broker refuses publishes to (RabbitMQ internal
+    exchanges, now listed): the composer is replaced by the reason. Rejected: declaring sequence
+    numbers on every RabbitMQ connection and narrowing classic and quorum queues (handlers would
+    trust a capability that isn't true), and a separate stream entity kind (ADR 20).

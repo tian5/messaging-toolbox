@@ -29,6 +29,9 @@ public sealed record ToolboxMessage
 
     public DateTimeOffset? ScheduledEnqueueTime { get; init; }
 
+    /// <summary>Routing key used when publishing to an exchange; reported on receive where the broker has one.</summary>
+    public string? RoutingKey { get; init; }
+
     public required byte[] Body { get; init; }
 
     public IReadOnlyDictionary<string, object?> ApplicationProperties { get; init; } =
@@ -52,4 +55,17 @@ public sealed record ToolboxMessage
     public string? DeadLetterReason { get; init; }
 
     public string? DeadLetterErrorDescription { get; init; }
+
+    /// <summary>
+    /// Path of the entity a dead-lettered message came from, when the broker records it (RabbitMQ:
+    /// <c>x-first-death-queue</c>); the natural target for a resubmit.
+    /// </summary>
+    public string? DeadLetterSourcePath { get; init; }
+
+    /// <summary>
+    /// Read-only, broker-specific system properties for display (e.g. exchange, redelivered flag,
+    /// death history). Never sent: a resubmit or clone starts from the typed properties.
+    /// </summary>
+    public IReadOnlyDictionary<string, object?> BrokerProperties { get; init; } =
+        new Dictionary<string, object?>();
 }

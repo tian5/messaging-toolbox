@@ -34,8 +34,11 @@ public sealed class LiveWatch
     /// <summary>Dead-letter views can't use a cursor: their messages keep the sequence number they had.</summary>
     public bool WalksWholeView => SubQueue is MessageSubQueue.DeadLetter or MessageSubQueue.TransferDeadLetter;
 
-    /// <summary>Cursor views: highest sequence number seen so far; the next peek starts after it.</summary>
-    public long LastSeenSequence { get; set; }
+    /// <summary>
+    /// Cursor views: highest sequence number seen so far; the next peek starts after it, or at the
+    /// beginning while nothing was seen (a stream's first offset is 0).
+    /// </summary>
+    public long? LastSeenSequence { get; set; }
 
     /// <summary>Whole-view walks: the sequence numbers present at the last walk.</summary>
     public IReadOnlySet<long> SeenSequences { get; set; } = new HashSet<long>();

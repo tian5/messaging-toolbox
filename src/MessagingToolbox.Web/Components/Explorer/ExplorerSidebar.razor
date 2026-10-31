@@ -89,8 +89,9 @@
     [Parameter]
     public EventCallback<CannedMessageDto> CannedInsert { get; set; }
 
-    // The emulator admin endpoint is re-probed on refresh, so the reason says what to wait for.
+    // Providers re-probe their management plane on refresh; the reason (provider-written) says
+    // what is missing and what the tree shows meanwhile.
     private string ManagementHint => SelectedConnection?.Capabilities?.ManagementUnavailableReason is { } reason
-        ? $"{reason} It is retried on Refresh. Until then, the tree shows the entities modeled in the AppHost."
-        : "Entity management isn't available for this connection. On the Azure Service Bus emulator it needs the admin endpoint (port 5300, emulator 2.0 or later); until it answers, the tree shows the entities modeled in the AppHost.";
+        ? $"{reason} It is retried on Refresh."
+        : "Entity management isn't available for this connection.";
 }

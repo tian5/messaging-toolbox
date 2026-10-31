@@ -61,6 +61,17 @@
                 }
             </dl>
         }
+
+        @if (Message.BrokerProperties.Count > 0)
+        {
+            <h4>Broker properties</h4>
+            <dl class="props">
+                @foreach (KeyValuePair<string, object?> property in Message.BrokerProperties)
+                {
+                    <div><dt>@property.Key</dt><dd>@(property.Value?.ToString() ?? "—")</dd></div>
+                }
+            </dl>
+        }
     </div>
 }
 
@@ -95,6 +106,11 @@
         yield return ("Subject", Message.Subject);
         yield return ("To", Message.To);
         yield return ("ReplyTo", Message.ReplyTo);
+        if (Message.RoutingKey is not null)
+        {
+            yield return ("RoutingKey", Message.RoutingKey);
+        }
+
         yield return ("ContentType", Message.ContentType);
         yield return ("SequenceNumber", Message.SequenceNumber?.ToString());
         yield return ("DeliveryCount", Message.DeliveryCount.ToString());

@@ -31,15 +31,28 @@
         else
         {
             <EntityDetails Node="ActiveConnectionWorkspace.SelectedNode"
-                           CanWatch="CanPeek"
+                           Capabilities="Capabilities"
+                           CanWatch="CanWatch"
                            Watched="IsSelectedNodeWatched"
                            ToggleWatch="ToggleWatch" />
+
+            @if (!ActiveConnectionWorkspace.SelectedNode.IsSubQueueNode)
+            {
+                <RoutingRulesPanel ConnectionId="_selectedConnection!.Id"
+                                   Node="ActiveConnectionWorkspace.SelectedNode"
+                                   Entities="ActiveConnectionWorkspace.Tree ?? []" />
+            }
 
             @if (CanPeek)
             {
                 <PeekControls Workspace="ActiveConnectionWorkspace"
                               IsScheduledNode="IsScheduledNode"
                               RequiresSession="@(ActiveConnectionWorkspace.SelectedNode?.RequiresSession == true)"
+                              Capabilities="Capabilities"
+                              PeekMode="@(ActiveConnectionWorkspace.SelectedNode?.PeekMode ?? PeekMode.NonDestructive)"
+                              CanPeekFromSequence="CanPeekFromSequence"
+                              CanPeekFromTime="CanPeekFromTime"
+                              Operations="SelectedOperations"
                               SubQueueLabel="@SubQueueLabel"
                               EntityBusy="IsSelectedEntityBusy"
                               EntityLoading="IsSelectedEntityLoading"
@@ -47,8 +60,12 @@
 
                 <MessageActionsBar Workspace="ActiveConnectionWorkspace"
                                    IsScheduledNode="IsScheduledNode"
+                                   CanPurge="SelectedOperations.CanPurge"
+                                   CanMove="CanMoveAll"
+                                   CanDelete="@(SelectedOperations.CanReceive || SelectedOperations.CanReceiveSettle)"
                                    CanDeadLetterSelection="CanDeadLetterSelection"
-                                   IsDeadLetterNode="IsDeadLetterNode"
+                                   CanResubmit="CanResubmit"
+                                   ResubmitLabel="@(IsDeadLetterNode ? "Requeue…" : "Copy / move to…")"
                                    IsReceiveAndDeleteLoaded="IsReceiveAndDeleteLoaded"
                                    EntityBusy="IsSelectedEntityBusy"
                                    Export="ExportAsync"
@@ -56,15 +73,16 @@
                                    DeferredSelectedCount="ActiveConnectionWorkspace.SelectedDeferredMessages.Count"
                                    ReceiveDeferred="ReceiveDeferredSelected"
                                    Purge="PurgeAsync"
+                                   Move="OpenMove"
                                    DeadLetter="DeadLetterSelected"
                                    Requeue="OpenRequeue"
                                    Delete="DeleteSelected" />
 
-                @if (IsDeadLetterNode && _requeuePanelVisible)
+                @if (CanResubmit && _requeuePanelVisible)
                 {
                     <div class="requeue-panel">
                         <label>
-                            Requeue into
+                            Send copies to
                             <select @bind="_requeueTarget">
                                 @foreach (EntityTreeNodeDto target in RequeueTargets)
                                 {
@@ -72,18 +90,50 @@
                                 }
                             </select>
                         </label>
-                        <label>
-                            <input type="checkbox" @bind="_requeueRemoveOriginals" />
-                            Remove originals from the DLQ after requeue
+                        <label title="@(CanRemoveOriginals ? null : "Load the messages with 'Receive (settle later)' first: removing an original needs its held delivery.")">
+                            <input type="checkbox" @bind="_requeueRemoveOriginals" disabled="@(!CanRemoveOriginals)" />
+                            Remove the originals afterwards
                         </label>
-                        <button type="button" @onclick="ConfirmRequeue" disabled="@(string.IsNullOrWhiteSpace(_requeueTarget) || ActiveConnectionWorkspace.Selection.Count == 0 || IsSelectedEntityBusy)">Requeue (@ActiveConnectionWorkspace.Selection.Count)</button>
+                        <button type="button" @onclick="ConfirmRequeue" disabled="@(string.IsNullOrWhiteSpace(_requeueTarget) || ActiveConnectionWorkspace.Selection.Count == 0 || IsSelectedEntityBusy)">Send (@ActiveConnectionWorkspace.Selection.Count)</button>
                         <button type="button" @onclick="CloseRequeue">Cancel</button>
+                    </div>
+                }
+
+                @if (CanMoveAll && _movePanelVisible)
+                {
+                    <div class="requeue-panel">
+                        <label>
+                            Move every message to
+                            <select @bind="_moveTarget">
+                                @foreach (EntityTreeNodeDto target in MoveTargets)
+                                {
+                                    <option value="@target.Path">@target.Name</option>
+                                }
+                            </select>
+                        </label>
+                        <button type="button" @onclick="ConfirmMoveAsync" disabled="@(string.IsNullOrWhiteSpace(_moveTarget) || IsSelectedEntityBusy)">Move…</button>
+                        <button type="button" @onclick="() => _movePanelVisible = false">Cancel</button>
                     </div>
                 }
 
                 @if (ActiveConnectionWorkspace.SelectedLockTokens.Count > 0)
                 {
-                    <SettleBar Count="ActiveConnectionWorkspace.SelectedLockTokens.Count" CanDeadLetter="!IsDeadLetterNode" Disabled="IsSelectedEntityBusy" OnSettle="SettleAsync" />
+                    <SettleBar Count="ActiveConnectionWorkspace.SelectedLockTokens.Count"
+                               CanDeadLetter="CanDeadLetterHeld"
+                               CanDefer="@(Capabilities?.SupportsDeferral != false)"
+                               CanGiveReason="@(Capabilities?.SupportsDeadLetterReason != false)"
+                               DeadLetterTitle="@($"Dead-letter to {DeadLetterDestination}")"
+                               Disabled="IsSelectedEntityBusy"
+                               OnSettle="SettleAsync" />
+                }
+                @if (CanReleaseHeld)
+                {
+                    @* Held deliveries don't expire on this broker (ADR 19): give them back explicitly. *@
+                    <div class="settle-bar">
+                        <span class="muted">@HeldLockTokens.Count held</span>
+                        <button type="button" disabled="@IsSelectedEntityBusy" @onclick="ReleaseHeld"
+                                title="Requeue every held message of this load, so consumers get them again">Release held</button>
+                    </div>
                 }
 
                 @if (ActiveConnectionWorkspace.IsStale)
@@ -99,7 +149,7 @@
                     <MessageGrid Messages="DisplayedMessages()"
                                  Selected="ActiveConnectionWorkspace.SelectedMessage"
                                  SelectedChanged="message => ActiveConnectionWorkspace.SelectedMessage = message"
-                                 SelectedSequences="ActiveConnectionWorkspace.Selection"
+                                 SelectedKeys="ActiveConnectionWorkspace.Selection"
                                  SelectionToggled="ToggleSelection"
                                  AllSelectionToggled="ToggleAllSelection"
                                  Loading="IsSelectedEntityLoading"
@@ -112,11 +162,18 @@
                 </div>
             }
 
+            @if (!SelectedOperations.CanSend && !CanPeek && SelectedOperations.Reason is { } sendReason)
+            {
+                @* ADR 20: say why there is no composer; PeekControls shows the reason where there are messages. *@
+                <p class="hint" role="note">@sendReason</p>
+            }
+
             @if (CanSend || ActiveConnectionWorkspace.EditMessage is not null)
             {
                 <MessageComposer @key="ComposerKey()"
                                  Draft="ActiveConnectionWorkspace.RepairDraft ?? ActiveConnectionWorkspace.Draft"
                                  FanOutWarning="FanOutWarning"
+                                 IsRoutingTarget="IsRoutingTarget"
                                  ConnectionId="_selectedConnection!.Id"
                                  EntityPath="@(ActiveConnectionWorkspace.OriginalPath ?? ActiveConnectionWorkspace.SelectedNode?.Path ?? string.Empty)"
                                  Prefill="ActiveConnectionWorkspace.EditMessage"
@@ -126,6 +183,7 @@
                                  OriginalLockToken="@ActiveConnectionWorkspace.OriginalLockToken"
                                  OriginalSequenceNumber="ActiveConnectionWorkspace.OriginalSequenceNumber"
                                  RequiresSession="@(ActiveConnectionWorkspace.SelectedNode?.RequiresSession == true)"
+                                 Capabilities="Capabilities"
                                  OnSent="OnComposerSentAsync" />
             }
         }

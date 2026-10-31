@@ -3,6 +3,7 @@ using MessagingToolbox.Application.Behaviors;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Infrastructure;
 using MessagingToolbox.Providers.AzureServiceBus;
+using MessagingToolbox.Providers.RabbitMQ;
 using MessagingToolbox.Web.Components;
 using MessagingToolbox.Web.Services;
 using MessagingToolbox.Web.Services.Session;
@@ -36,6 +37,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddApplication(configuration);
     services.AddInfrastructure(configuration);
     services.AddAzureServiceBusProvider(configuration);
+    services.AddRabbitMqProvider(configuration);
 
     //TODO: temp we got notification implementation in Web, so AddApplication won't register that moved from there
     services.AddMediator(options =>

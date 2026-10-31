@@ -37,6 +37,10 @@ public class EmulatorRoundTripTests : IClassFixture<EmulatorFixture>
         sut.Capabilities.CanManageEntities.ShouldBeTrue();
         entities.Single(entity => entity.Path == EmulatorFixture.SessionQueue).RequiresSession.ShouldBeTrue();
         entities.ShouldContain(entity => entity.Path == EmulatorFixture.SubscriptionB);
+        entities.Single(entity => entity.Path == EmulatorFixture.SessionQueue).Properties
+            .ShouldContain(new EntityProperty("Settings", "Sessions", "yes"));
+        entities.Single(entity => entity.Path == EmulatorFixture.SubscriptionB).Properties
+            .ShouldContain(property => property.Name == "Lock duration");
     }
 
     [EmulatorFact]

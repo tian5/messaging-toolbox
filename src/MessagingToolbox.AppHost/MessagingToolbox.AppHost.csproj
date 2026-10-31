@@ -12,6 +12,9 @@
     <ItemGroup>
         <PackageReference Include="Aspire.Hosting.AppHost" />
         <PackageReference Include="Aspire.Hosting.Azure.ServiceBus" />
+        <PackageReference Include="Aspire.Hosting.RabbitMQ" />
+        <!-- Seeds the playground's RabbitMQ topology (Aspire doesn't model queues or exchanges). -->
+        <PackageReference Include="RabbitMQ.Client" />
     </ItemGroup>
 
     <ItemGroup>

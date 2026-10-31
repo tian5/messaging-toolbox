@@ -78,6 +78,7 @@ public sealed class AzureServiceBusManagement : IAzureServiceBusManagement
                 Kind = EntityKind.Queue,
                 Status = MapStatus(queue.Status),
                 RequiresSession = queue.RequiresSession,
+                Properties = AzureServiceBusEntityProperties.ForQueue(queue),
                 RuntimeInfo = runtime is null ? null : MapQueueRuntimeInfo(runtime),
             });
         }
@@ -91,6 +92,7 @@ public sealed class AzureServiceBusManagement : IAzureServiceBusManagement
                 Name = topic.Name,
                 Kind = EntityKind.Topic,
                 Status = MapStatus(topic.Status),
+                Properties = AzureServiceBusEntityProperties.ForTopic(topic),
                 RuntimeInfo = runtime is null ? null : MapTopicRuntimeInfo(runtime),
             });
 
@@ -109,6 +111,7 @@ public sealed class AzureServiceBusManagement : IAzureServiceBusManagement
                     ParentPath = topic.Name,
                     Status = MapStatus(subscription.Status),
                     RequiresSession = subscription.RequiresSession,
+                    Properties = AzureServiceBusEntityProperties.ForSubscription(subscription),
                     RuntimeInfo = subRuntime is null ? null : MapSubscriptionRuntimeInfo(subRuntime),
                 });
             }
@@ -326,7 +329,7 @@ public sealed class AzureServiceBusManagement : IAzureServiceBusManagement
             Response<SubscriptionProperties> response = await _administrationClient.GetSubscriptionAsync(topicName, subscriptionName, cancellationToken);
             SubscriptionProperties properties = response.Value;
             return new EntityDefinition(
-                entityPath,
+                subscriptionName,
                 EntityKind.Subscription,
                 topicName,
                 new Dictionary<string, object?>(StringComparer.Ordinal)

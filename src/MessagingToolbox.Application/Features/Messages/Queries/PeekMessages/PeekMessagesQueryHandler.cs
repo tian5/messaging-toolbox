@@ -20,7 +20,7 @@ public sealed class PeekMessagesQueryHandler : IRequestHandler<PeekMessagesQuery
     {
         IMessagingProvider provider = await _providerFactory.GetProviderAsync(request.ConnectionId, cancellationToken);
 
-        PeekRequest peekRequest = new(request.EntityPath, request.SubQueue, request.MaxMessages, request.FromSequenceNumber, request.SessionId);
+        PeekRequest peekRequest = new(request.EntityPath, request.SubQueue, request.MaxMessages, request.FromSequenceNumber, request.SessionId, request.FromTime);
         IReadOnlyList<ToolboxMessage> messages = await provider.PeekAsync(peekRequest, cancellationToken);
 
         return messages.Select(MessageDtoMapper.ToDto).ToList();

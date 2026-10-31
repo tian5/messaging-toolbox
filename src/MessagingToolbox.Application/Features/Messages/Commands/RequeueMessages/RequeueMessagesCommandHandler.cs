@@ -1,5 +1,6 @@
 using Mediator;
 using MessagingToolbox.Abstractions;
+using MessagingToolbox.Abstractions.Errors;
 using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Common;
 using MessagingToolbox.Application.Common.Dtos;
@@ -33,6 +34,22 @@ public sealed class RequeueMessagesCommandHandler : IRequestHandler<RequeueMessa
         }
 
         IMessagingProvider provider = await _providerFactory.GetProviderAsync(request.ConnectionId, cancellationToken);
+
+        // Brokers with a dead-letter sub-queue requeue from it only. Without one (RabbitMQ), a
+        // dead-letter queue is an ordinary queue, so any active queue is a valid source (ADR 19).
+        bool isDeadLetterSubQueue = request.SourceSubQueue is MessageSubQueue.DeadLetter or MessageSubQueue.TransferDeadLetter;
+        if (!isDeadLetterSubQueue && provider.Capabilities.SupportsDeadLetterSubQueue)
+        {
+            throw new NotSupportedByProviderException("Only dead-lettered messages can be requeued on this connection.");
+        }
+
+        // Checked before any clone is sent: without lock tokens the originals can only be removed
+        // by sequence number, and a requeue that can't remove them would leave duplicates.
+        if (request.RemoveOriginals && request.LockTokens is not { Count: > 0 } && !provider.Capabilities.SupportsSequenceNumbers)
+        {
+            throw new NotSupportedByProviderException(
+                "This connection has no sequence numbers; load the messages for settlement to requeue them with removal.");
+        }
 
         List<ToolboxMessage> clones = [];
         foreach (MessageDto message in request.Messages)

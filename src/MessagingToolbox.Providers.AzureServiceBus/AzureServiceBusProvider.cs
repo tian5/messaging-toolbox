@@ -271,6 +271,11 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
     {
         using Activity? activity = Telemetry.Source.StartActivity("servicebus.messages.peek");
 
+        if (request.FromTime is not null)
+        {
+            throw new NotSupportedByProviderException("Azure Service Bus browses by sequence number; it can't start a peek at a point in time.");
+        }
+
         int maxMessages = Math.Clamp(request.MaxMessages, 1, MaxPeekMessages);
 
         // A plain receiver peeks across every session of a session-enabled entity — no session lock.
@@ -717,6 +722,10 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
         return settled;
     }
 
+    // Service Bus has no broker-side move; copies go through requeue (clone, then remove the originals).
+    public Task<long> MoveMessagesAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken)
+        => throw new NotSupportedByProviderException("Azure Service Bus can't move messages inside the broker; requeue copies instead.");
+
     public async Task<long> PurgeAsync(string entityPath, MessageSubQueue subQueue, CancellationToken cancellationToken)
     {
         using Activity? activity = Telemetry.Source.StartActivity("servicebus.entity.purge");
@@ -797,6 +806,27 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
         }
     }
 
+    public IReadOnlyList<EntityTypeDescriptor> GetEntityTypes() => AzureServiceBusEntityTypes.All;
+
+    // Subscription rules (filters and actions, FR-6.3) are the Service Bus routing rules; not yet.
+    public RoutingRuleType? GetRoutingRuleType() => null;
+
+    public Task<IReadOnlyList<RoutingRule>> ListRoutingRulesAsync(string entityPath, CancellationToken cancellationToken)
+        => throw RulesNotSupported();
+
+    public Task<RoutingRule> CreateRoutingRuleAsync(
+        string sourcePath,
+        string destinationPath,
+        IReadOnlyDictionary<string, object?> options,
+        CancellationToken cancellationToken)
+        => throw RulesNotSupported();
+
+    public Task DeleteRoutingRuleAsync(RoutingRule rule, CancellationToken cancellationToken)
+        => throw RulesNotSupported();
+
+    private static NotSupportedByProviderException RulesNotSupported()
+        => new("Subscription rules can't be managed from the toolbox yet.");
+
     public async Task<MessagingEntity> CreateOrUpdateEntityAsync(EntityDefinition definition, CancellationToken cancellationToken)
     {
         await EnsureCapabilitiesProbedAsync(cancellationToken);
@@ -807,15 +837,13 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
                 "This connection does not support entity management.");
         }
 
-        (string path, string? subscription) = ServiceBusEntityPath.Split(definition.Path);
-
         MessagingEntity entity = definition.Kind switch
         {
-            EntityKind.Queue => await _management!.CreateOrUpdateQueueAsync(path, definition.Options, cancellationToken),
-            EntityKind.Topic => await _management!.CreateOrUpdateTopicAsync(path, definition.Options, cancellationToken),
-            EntityKind.Subscription when subscription is not null && definition.ParentPath is not null =>
-                await _management!.CreateOrUpdateSubscriptionAsync(definition.ParentPath, subscription, definition.Options, cancellationToken),
-            _ => throw new NotSupportedByProviderException($"Entity definition '{definition.Path}' is not valid for create or update."),
+            EntityKind.Queue => await _management!.CreateOrUpdateQueueAsync(definition.Name, definition.Options, cancellationToken),
+            EntityKind.Topic => await _management!.CreateOrUpdateTopicAsync(definition.Name, definition.Options, cancellationToken),
+            EntityKind.Subscription when definition.ParentPath is not null =>
+                await _management!.CreateOrUpdateSubscriptionAsync(definition.ParentPath, definition.Name, definition.Options, cancellationToken),
+            _ => throw new NotSupportedByProviderException($"A {definition.Kind} named '{definition.Name}' can't be created on Azure Service Bus."),
         };
 
         LearnSessionRequirements([entity]);
@@ -1075,7 +1103,9 @@ public sealed class AzureServiceBusProvider : IMessagingProvider, IAsyncDisposab
         ProviderCapabilities updated = current with
         {
             CanManageEntities = unavailableReason is null,
-            ManagementUnavailableReason = unavailableReason is null ? null : $"Entity management is unavailable: {unavailableReason}",
+            ManagementUnavailableReason = unavailableReason is null
+                ? null
+                : $"Entity management is unavailable: {unavailableReason} It needs the emulator admin endpoint (port 5300, emulator 2.0 or later); until it answers, the tree shows the entities modeled in the AppHost.",
         };
         Interlocked.Exchange(ref _capabilities, updated);
 

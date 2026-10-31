@@ -6,7 +6,7 @@ namespace MessagingToolbox.Abstractions;
 /// The provider contract every broker plugs into. Implementations translate SDK exceptions
 /// into the typed errors in <see cref="Errors"/> and honor <see cref="Capabilities"/>.
 /// </summary>
-public interface IMessagingProvider
+public interface IMessagingProvider : IAsyncDisposable
 {
     ProviderKind Kind { get; }
 
@@ -95,14 +95,47 @@ public interface IMessagingProvider
     Task<long> PurgeAsync(string entityPath, MessageSubQueue subQueue, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Moves every ready message of the source entity to the destination inside the broker, without
+    /// passing them through the toolbox; returns the number of messages moved. Needs
+    /// <see cref="ProviderCapabilities.CanMoveMessages"/>. Messages held unsettled stay in the source.
+    /// A move that doesn't finish in time is stopped: what moved so far stays moved.
+    /// </summary>
+    Task<long> MoveMessagesAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Cancels scheduled messages by sequence number — the only way to remove a message that is not
     /// yet enqueued; returns the sequence numbers actually cancelled.
     /// </summary>
     Task<IReadOnlyList<long>> CancelScheduledAsync(string entityPath, IReadOnlyList<long> sequenceNumbers, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The entity types this connection can create and the options each accepts (ADR 21); empty
+    /// when it can't manage entities at all.
+    /// </summary>
+    IReadOnlyList<EntityTypeDescriptor> GetEntityTypes();
+
     Task<MessagingEntity> CreateOrUpdateEntityAsync(EntityDefinition definition, CancellationToken cancellationToken);
 
     Task DeleteEntityAsync(string entityPath, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The routing rules this connection manages (ADR 22); null when it has none, e.g. a broker
+    /// that routes by entity hierarchy alone.
+    /// </summary>
+    RoutingRuleType? GetRoutingRuleType();
+
+    /// <summary>Routing rules that route from or to the entity; providers leave out implicit ones they can't change.</summary>
+    Task<IReadOnlyList<RoutingRule>> ListRoutingRulesAsync(string entityPath, CancellationToken cancellationToken);
+
+    /// <summary>Creates a rule routing from <paramref name="sourcePath"/> to <paramref name="destinationPath"/>.</summary>
+    Task<RoutingRule> CreateRoutingRuleAsync(
+        string sourcePath,
+        string destinationPath,
+        IReadOnlyDictionary<string, object?> options,
+        CancellationToken cancellationToken);
+
+    /// <summary>Deletes a rule obtained from <see cref="ListRoutingRulesAsync"/>.</summary>
+    Task DeleteRoutingRuleAsync(RoutingRule rule, CancellationToken cancellationToken);
 
     /// <summary>
     /// Reads the management definition of an existing entity so it can be edited. Throws

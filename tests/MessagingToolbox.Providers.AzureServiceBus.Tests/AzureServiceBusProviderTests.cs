@@ -33,13 +33,33 @@ public class AzureServiceBusProviderTests
     }
 
     [Fact]
-    public async Task Capabilities_CloudConnection_ExposesManagementPlane()
+    public async Task Capabilities_CloudConnection_ExposesEntityManagementButNoRulesYet()
     {
         await using AzureServiceBusProvider provider = CreateProvider(CloudConnectionString);
 
         provider.Capabilities.CanManageEntities.ShouldBeTrue();
-        provider.Capabilities.CanManageRules.ShouldBeTrue();
+        provider.Capabilities.CanManageRules.ShouldBeFalse();
+        provider.GetRoutingRuleType().ShouldBeNull();
+        provider.Capabilities.CanMoveMessages.ShouldBeFalse();
         provider.Capabilities.MaxMessageSizeBytes.ShouldBe(100 * 1024 * 1024);
+    }
+
+    [Fact]
+    public async Task PeekAsync_FromTime_ThrowsNotSupported()
+    {
+        await using AzureServiceBusProvider provider = CreateProvider(CloudConnectionString);
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => provider.PeekAsync(
+            new PeekRequest("orders", MessageSubQueue.Active, 10, null, FromTime: DateTimeOffset.UnixEpoch), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task MoveMessagesAsync_AnyConnection_ThrowsNotSupported()
+    {
+        await using AzureServiceBusProvider provider = CreateProvider(CloudConnectionString);
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(
+            () => provider.MoveMessagesAsync("orders/$deadletterqueue", "orders", CancellationToken.None));
     }
 
     [Fact]
@@ -131,6 +151,38 @@ public class AzureServiceBusProviderTests
             "orders",
             Arg.Is<IReadOnlyDictionary<string, object?>>(options => (bool?)options["RequiresSession"] == true),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateEntityAsync_Subscription_UsesNameUnderParentTopic()
+    {
+        IAzureServiceBusManagement management = Substitute.For<IAzureServiceBusManagement>();
+        management.ProbeAsync(Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        management.CreateOrUpdateSubscriptionAsync("events", "processor", Arg.Any<IReadOnlyDictionary<string, object?>>(), Arg.Any<CancellationToken>())
+            .Returns(new MessagingEntity { Path = "events/subscriptions/processor", Name = "processor", Kind = EntityKind.Subscription, ParentPath = "events" });
+        await using AzureServiceBusProvider provider = CreateProvider(EmulatorConnectionString, management: management);
+
+
+        MessagingEntity entity = await provider.CreateOrUpdateEntityAsync(
+            new EntityDefinition("processor", EntityKind.Subscription, "events", new Dictionary<string, object?>()), CancellationToken.None);
+
+
+        entity.Path.ShouldBe("events/subscriptions/processor");
+    }
+
+    [Fact]
+    public void GetEntityTypes_Always_DescribesQueueTopicAndSubscriptionUnderTopics()
+    {
+        AzureServiceBusProvider provider = CreateProvider(EmulatorConnectionString);
+
+
+        IReadOnlyList<EntityTypeDescriptor> types = provider.GetEntityTypes();
+
+
+        types.Select(type => type.Kind).ShouldBe([EntityKind.Queue, EntityKind.Topic, EntityKind.Subscription]);
+        types[2].ParentKind.ShouldBe(EntityKind.Topic);
+        types[0].Options.Single(option => option.Key == "RequiresSession").CreateOnly.ShouldBeTrue();
+        types[1].Options.ShouldNotContain(option => option.Key == "LockDuration");
     }
 
     [Fact]

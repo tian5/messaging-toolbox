@@ -22,9 +22,12 @@ public sealed class AuditLog(IToolboxDbContextFactory dbContextFactory, IPublish
     public const string DeadLetterSelected = "deadletter-selected";
     public const string RepairResubmitRemove = "repair-resubmit-remove";
     public const string Requeue = "requeue";
+    public const string Move = "move";
     public const string Resend = "resend";
     public const string DeleteEntity = "delete-entity";
     public const string SaveEntity = "save-entity";
+    public const string CreateRoutingRule = "create-routing-rule";
+    public const string DeleteRoutingRule = "delete-routing-rule";
     public const string Import = "import";
     public const string DeleteConnection = "delete-connection";
 

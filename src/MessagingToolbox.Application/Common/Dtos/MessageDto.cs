@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using MessagingToolbox.Abstractions.Messaging;
 
 namespace MessagingToolbox.Application.Common.Dtos;
@@ -6,6 +7,13 @@ namespace MessagingToolbox.Application.Common.Dtos;
 public sealed record MessageDto
 {
     public required string Body { get; init; }
+
+    /// <summary>
+    /// Identity of this message within one loaded view, assigned by the view when the load lands
+    /// (grid selection works for brokers without sequence numbers too). Never exported.
+    /// </summary>
+    [JsonIgnore]
+    public string RowKey { get; init; } = string.Empty;
 
     /// <summary>Detected body format for display and export/import round-tripping.</summary>
     public required MessageBodyFormat BodyFormat { get; init; }
@@ -34,6 +42,8 @@ public sealed record MessageDto
 
     public DateTimeOffset? ScheduledEnqueueTime { get; init; }
 
+    public string? RoutingKey { get; init; }
+
     public long? SequenceNumber { get; init; }
 
     /// <summary>Deferred messages are skipped by receives; they come back only by sequence number.</summary>
@@ -49,6 +59,9 @@ public sealed record MessageDto
 
     public string? DeadLetterErrorDescription { get; init; }
 
+    /// <summary>Entity a dead-lettered message came from, when the broker records it.</summary>
+    public string? DeadLetterSourcePath { get; init; }
+
     /// <summary>Present when the message was received in peek-lock mode; required for settlement.</summary>
     public string? LockToken { get; init; }
 
@@ -56,5 +69,9 @@ public sealed record MessageDto
     public DateTimeOffset? LockedUntil { get; init; }
 
     public IReadOnlyDictionary<string, object?> ApplicationProperties { get; init; } =
+        new Dictionary<string, object?>();
+
+    /// <summary>Read-only broker system properties (display only; never sent or imported).</summary>
+    public IReadOnlyDictionary<string, object?> BrokerProperties { get; init; } =
         new Dictionary<string, object?>();
 }

@@ -8,7 +8,7 @@ public sealed class CreateOrUpdateEntityCommandValidator : AbstractValidator<Cre
     public CreateOrUpdateEntityCommandValidator()
     {
         RuleFor(command => command.ConnectionId).NotEmpty();
-        RuleFor(command => command.Path).NotEmpty().MaximumLength(260);
+        RuleFor(command => command.Name).NotEmpty().MaximumLength(260);
         RuleFor(command => command.Kind).IsInEnum();
         RuleFor(command => command.ParentPath)
             .NotEmpty()

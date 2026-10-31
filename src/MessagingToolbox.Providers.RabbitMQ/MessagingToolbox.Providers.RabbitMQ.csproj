@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Description>MessagingToolbox provider for RabbitMQ: AMQP 0-9-1 data plane plus the management HTTP API for discovery and counts.</Description>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\MessagingToolbox.Abstractions\MessagingToolbox.Abstractions.csproj" />
+        <ProjectReference Include="..\MessagingToolbox.Application\MessagingToolbox.Application.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="MessagingToolbox.Providers.RabbitMQ.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="RabbitMQ.Client" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    </ItemGroup>
+
+</Project>

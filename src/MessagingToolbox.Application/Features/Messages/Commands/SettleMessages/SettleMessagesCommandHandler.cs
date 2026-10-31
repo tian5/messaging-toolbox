@@ -1,5 +1,6 @@
 using Mediator;
 using MessagingToolbox.Abstractions;
+using MessagingToolbox.Abstractions.Errors;
 using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Core.Models;
@@ -31,6 +32,11 @@ public sealed class SettleMessagesCommandHandler : IRequestHandler<SettleMessage
         }
 
         IMessagingProvider provider = await _providerFactory.GetProviderAsync(request.ConnectionId, cancellationToken);
+
+        if (request.Operation == SettlementOperation.Defer && !provider.Capabilities.SupportsDeferral)
+        {
+            throw new NotSupportedByProviderException("This connection does not support deferring messages.");
+        }
 
         IReadOnlyList<string> settled = await provider.SettleAsync(
             new SettleRequest(

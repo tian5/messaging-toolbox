@@ -36,7 +36,8 @@ public sealed class SendMessageCommandHandler : IRequestHandler<SendMessageComma
                 to: request.To,
                 replyTo: request.ReplyTo,
                 scheduledEnqueueTime: request.ScheduledEnqueueTime,
-                timeToLive: request.TimeToLive));
+                timeToLive: request.TimeToLive,
+                routingKey: request.RoutingKey));
         }
 
         await provider.SendAsync(request.EntityPath, messages, cancellationToken);

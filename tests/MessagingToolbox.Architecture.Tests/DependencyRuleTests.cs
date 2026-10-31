@@ -5,6 +5,7 @@ using MessagingToolbox.Application.Features.Connections.Queries.GetConnections;
 using MessagingToolbox.Domain.Entities;
 using MessagingToolbox.Infrastructure.Persistence;
 using MessagingToolbox.Providers.AzureServiceBus;
+using MessagingToolbox.Providers.RabbitMQ;
 using MessagingToolbox.Web.Components.Pages;
 using Microsoft.AspNetCore.Components;
 using NetArchTest.Rules;
@@ -16,7 +17,8 @@ namespace MessagingToolbox.Architecture.Tests;
 /// <summary>
 /// Enforces the dependency rules of architecture doc §3 plus the DevOps amendment:
 /// Abstractions is dependency-free, Domain/Application stay SDK-free, Providers reference
-/// Abstractions (never the other way), Web components never bypass the Application layer.
+/// Abstractions (never the other way, and never each other), Infrastructure stays provider-free,
+/// Web components never bypass the Application layer.
 /// </summary>
 public class DependencyRuleTests
 {
@@ -24,8 +26,29 @@ public class DependencyRuleTests
     private static readonly Assembly DomainAssembly = typeof(EntityBase).Assembly;
     private static readonly Assembly ApplicationAssembly = typeof(GetConnectionsQuery).Assembly;
     private static readonly Assembly InfrastructureAssembly = typeof(ToolboxDbContext).Assembly;
-    private static readonly Assembly ProvidersAssembly = typeof(AzureServiceBusProvider).Assembly;
     private static readonly Assembly WebAssembly = typeof(Home).Assembly;
+
+    // Every broker provider; a new provider adds its assembly and SDK namespaces here.
+    private static readonly Assembly[] ProviderAssemblies =
+    [
+        typeof(AzureServiceBusProvider).Assembly,
+        typeof(RabbitMqProvider).Assembly,
+    ];
+
+    private static readonly string[] BrokerSdkNamespaces = ["Azure.Messaging.ServiceBus", "Azure.Core", "RabbitMQ.Client"];
+
+    private const string ProvidersNamespace = "MessagingToolbox.Providers";
+
+    public static TheoryData<string> ProviderAssemblyNames()
+    {
+        TheoryData<string> data = [];
+        foreach (Assembly assembly in ProviderAssemblies)
+        {
+            data.Add(assembly.GetName().Name!);
+        }
+
+        return data;
+    }
 
     [Fact]
     public void Abstractions_DoesNotDependOnOtherLayers()
@@ -36,7 +59,7 @@ public class DependencyRuleTests
                 "MessagingToolbox.Domain",
                 "MessagingToolbox.Application",
                 "MessagingToolbox.Infrastructure",
-                "MessagingToolbox.Providers.AzureServiceBus",
+                ProvidersNamespace,
                 "MessagingToolbox.Web")
             .GetResult();
 
@@ -50,10 +73,7 @@ public class DependencyRuleTests
         TestResult result = Types.InAssembly(DomainAssembly)
             .ShouldNot()
             .HaveDependencyOnAny(
-                "Microsoft.EntityFrameworkCore",
-                "Microsoft.AspNetCore",
-                "Azure.Messaging.ServiceBus",
-                "Mediator")
+                ["Microsoft.EntityFrameworkCore", "Microsoft.AspNetCore", "Mediator", .. BrokerSdkNamespaces])
             .GetResult();
 
 
@@ -66,20 +86,18 @@ public class DependencyRuleTests
         TestResult result = Types.InAssembly(ApplicationAssembly)
             .ShouldNot()
             .HaveDependencyOnAny(
-                "MessagingToolbox.Infrastructure",
-                "MessagingToolbox.Providers.AzureServiceBus",
-                "Microsoft.AspNetCore",
-                "Azure.Messaging.ServiceBus")
+                ["MessagingToolbox.Infrastructure", ProvidersNamespace, "Microsoft.AspNetCore", .. BrokerSdkNamespaces])
             .GetResult();
 
 
         result.IsSuccessful.ShouldBeTrue(FailingTypes(result));
     }
 
-    [Fact]
-    public void Providers_ImplementingMessagingProvider_ReferenceAbstractions()
+    [Theory]
+    [MemberData(nameof(ProviderAssemblyNames))]
+    public void Providers_ImplementingMessagingProvider_ReferenceAbstractions(string providerAssembly)
     {
-        TestResult result = Types.InAssembly(ProvidersAssembly)
+        TestResult result = Types.InAssembly(ProviderAssembly(providerAssembly))
             .That()
             .ImplementInterface(typeof(IMessagingProvider))
             .Should()
@@ -90,12 +108,31 @@ public class DependencyRuleTests
         result.IsSuccessful.ShouldBeTrue(FailingTypes(result));
     }
 
+    [Theory]
+    [MemberData(nameof(ProviderAssemblyNames))]
+    public void Providers_DoNotReferenceOtherProviders(string providerAssembly)
+    {
+        string[] otherProviders = ProviderAssemblies
+            .Select(assembly => assembly.GetName().Name!)
+            .Where(name => name != providerAssembly)
+            .ToArray();
+
+
+        TestResult result = Types.InAssembly(ProviderAssembly(providerAssembly))
+            .ShouldNot()
+            .HaveDependencyOnAny(otherProviders)
+            .GetResult();
+
+
+        result.IsSuccessful.ShouldBeTrue(FailingTypes(result));
+    }
+
     [Fact]
-    public void Infrastructure_DoesNotReferenceBrokerSdks()
+    public void Infrastructure_DoesNotReferenceProvidersOrBrokerSdks()
     {
         TestResult result = Types.InAssembly(InfrastructureAssembly)
             .ShouldNot()
-            .HaveDependencyOn("Azure.Messaging.ServiceBus")
+            .HaveDependencyOnAny([ProvidersNamespace, .. BrokerSdkNamespaces])
             .GetResult();
 
 
@@ -107,7 +144,7 @@ public class DependencyRuleTests
     {
         TestResult result = Types.InAssembly(WebAssembly)
             .ShouldNot()
-            .HaveDependencyOnAny("Azure.Messaging.ServiceBus", "Azure.Core")
+            .HaveDependencyOnAny(BrokerSdkNamespaces)
             .GetResult();
 
 
@@ -121,7 +158,7 @@ public class DependencyRuleTests
             .That()
             .Inherit(typeof(ComponentBase))
             .ShouldNot()
-            .HaveDependencyOnAny("MessagingToolbox.Providers.AzureServiceBus", "MessagingToolbox.Infrastructure")
+            .HaveDependencyOnAny(ProvidersNamespace, "MessagingToolbox.Infrastructure")
             .GetResult();
 
 
@@ -141,6 +178,9 @@ public class DependencyRuleTests
 
         result.IsSuccessful.ShouldBeTrue(FailingTypes(result));
     }
+
+    private static Assembly ProviderAssembly(string name)
+        => ProviderAssemblies.Single(assembly => assembly.GetName().Name == name);
 
     private static string FailingTypes(TestResult result)
         => result.FailingTypes is null

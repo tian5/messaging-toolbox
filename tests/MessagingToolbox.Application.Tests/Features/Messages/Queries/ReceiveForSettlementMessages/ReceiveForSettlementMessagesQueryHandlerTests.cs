@@ -4,6 +4,7 @@ using MessagingToolbox.Abstractions.Messaging;
 using MessagingToolbox.Application.Common.Dtos;
 using MessagingToolbox.Application.Core.Interfaces;
 using MessagingToolbox.Application.Features.Messages.Queries.ReceiveForSettlementMessages;
+using MessagingToolbox.Application.Tests.Common;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -23,6 +24,7 @@ public class ReceiveForSettlementMessagesQueryHandlerTests
     {
         _providerFactory = Substitute.For<IMessagingProviderFactory>();
         _provider = Substitute.For<IMessagingProvider>();
+        _provider.Capabilities.Returns(TestCapabilities.DataPlane);
         IConnectionCatalog connectionCatalog = Substitute.For<IConnectionCatalog>();
         _auditLog = Substitute.For<IAuditLog>();
         _providerFactory.GetProviderAsync(ConnectionId, Arg.Any<CancellationToken>()).Returns(_provider);
@@ -53,9 +55,7 @@ public class ReceiveForSettlementMessagesQueryHandlerTests
     [Fact]
     public async Task Handle_SessionId_ReceivesFromThatSession()
     {
-        _provider.Capabilities.Returns(new ProviderCapabilities(
-            CanManageEntities: false, CanManageRules: false, CanPeek: true, CanReceiveSettle: true,
-            SupportsSessions: true, SupportsScheduling: true, SupportsTransactions: false, MaxMessageSizeBytes: 256 * 1024));
+        _provider.Capabilities.Returns(TestCapabilities.DataPlane);
         _provider.ReceiveForSettlementAsync("orders", MessageSubQueue.Active, 10, Arg.Any<TimeSpan?>(), Arg.Any<CancellationToken>(), Arg.Any<TimeSpan?>(), "order-42")
             .Returns([new ToolboxMessage { Body = "body"u8.ToArray(), SequenceNumber = 7, LockToken = "token-1", SessionId = "order-42" }]);
 
@@ -71,13 +71,25 @@ public class ReceiveForSettlementMessagesQueryHandlerTests
     [Fact]
     public async Task Handle_SessionIdWithoutSessionSupport_ThrowsNotSupported()
     {
-        _provider.Capabilities.Returns(new ProviderCapabilities(
-            CanManageEntities: false, CanManageRules: false, CanPeek: true, CanReceiveSettle: true,
-            SupportsSessions: false, SupportsScheduling: true, SupportsTransactions: false, MaxMessageSizeBytes: 256 * 1024));
+        _provider.Capabilities.Returns(TestCapabilities.DataPlane with { SupportsSessions = false });
 
 
         await Should.ThrowAsync<NotSupportedByProviderException>(() => _sut.Handle(
             new ReceiveForSettlementMessagesQuery(ConnectionId, "orders", MessageSubQueue.Active, 10, null, SessionId: "order-42"),
+            CancellationToken.None).AsTask());
+
+
+        await _provider.DidNotReceiveWithAnyArgs().ReceiveForSettlementAsync(default!, default, default, default, default);
+    }
+
+    [Fact]
+    public async Task Handle_SettlementUnsupported_ThrowsWithoutReceiving()
+    {
+        _provider.Capabilities.Returns(TestCapabilities.DataPlane with { CanReceiveSettle = false });
+
+
+        await Should.ThrowAsync<NotSupportedByProviderException>(() => _sut.Handle(
+            new ReceiveForSettlementMessagesQuery(ConnectionId, "queues/orders", MessageSubQueue.Active, 10, null),
             CancellationToken.None).AsTask());
 
 

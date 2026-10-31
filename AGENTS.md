@@ -16,7 +16,7 @@ Aspire-native, distributed as:
    runs outside Aspire, configured purely via environment variables.
 
 Broker-agnostic by design: every broker plugs into the `IMessagingProvider` abstraction
-(RabbitMQ, Kafka, NATS are on the roadmap). Providers declare a `ProviderCapabilities` record;
+(RabbitMQ is the second provider; Kafka and NATS are on the roadmap). Providers declare a `ProviderCapabilities` record;
 every feature area and management handler checks capabilities before acting, so emulator
 connections degrade gracefully instead of failing.
 
@@ -62,17 +62,24 @@ Layer responsibilities:
 - **`Application/`** — CQRS use cases, one folder per feature under `Features/` (Connections,
   Explorer, Messages, Templates, Audit, Management), subfolder per operation
   (`Queries/{Op}/{Op}Query.cs` + `{Op}QueryHandler.cs`). Interfaces in `Core/Interfaces/`
-  (`IToolboxDbContext` + `IToolboxDbContextFactory`, `IMessagingProviderFactory`, `IConnectionCatalog`,
+  (`IToolboxDbContext` + `IToolboxDbContextFactory`, `IMessagingProviderFactory`,
+  `IMessagingProviderBuilder` (one per broker), `IConnectionCatalog`,
   `IConnectionStringProtector`, `IMessageTemplateEngine`), DTOs (records) in `Common/Dtos/`,
   shared services in `Services/`. Handlers never reference ASP.NET or broker SDKs.
 - **`Infrastructure/`** — EF Core + SQLite (`ToolboxDbContext`, `EnsureCreated` for now),
   ASP.NET Core Data Protection for connection strings at rest, `ConnectionCatalog` merging
-  config-seeded (Aspire/env) and saved connections, `ToolboxDbInitializer`.
+  config-seeded (Aspire/env) and saved connections, `ToolboxDbInitializer`, and the singleton
+  `MessagingProviderFactory` that caches providers and dispatches to the builder for each kind.
 - **`Providers.AzureServiceBus/`** — one project for cloud + emulator (mode comes from the
   connection profile). Emulator quirks stay here: admin-endpoint discovery (host-supplied `AdminEndpoint`, else `sb://host:5300`, re-probed on failure)
   with Aspire-modeled entities as offline fallback, `PeekRuntimeCountSampler` for runtime
   counts, opt-in background lock renewal, per-receiver semaphores, `ServiceBusExceptionTranslator`
   (SDK exceptions → typed provider errors).
+- **`Providers.RabbitMQ/`** — RabbitMQ over AMQP 0-9-1 (`RabbitMQ.Client` 7) for one vhost per
+  connection; discovery and counts through the management HTTP API (thin `HttpClient`, probed and
+  re-probed like the emulator admin endpoint; config-listed queues as fallback). Paths are
+  `queues/{name}` / `exchanges/{name}`. Classic/quorum peek is a disclosed get + nack-requeue
+  (`PeekMode.Requeue`, ADR 18), streams are read by offset.
 - **`Web/`** — thin Blazor Server shell. Components under `Components/` inject `ISender` only
   (via `ToolboxComponentBase`); `CapabilityGate.razor` wraps management UI. No business logic,
   no direct DbContext/provider use.
@@ -151,6 +158,7 @@ under `tests/`, mirroring namespaces; shared settings in `tests/Directory.Build.
 | `Domain.Tests` | entity defaults and invariants | xUnit, Shouldly |
 | `Application.Tests` | handler logic | NSubstitute for broker-facing interfaces; real in-memory SQLite (`SqliteTestBase`) for persistence handlers; `FakeTimeProvider` |
 | `Providers.AzureServiceBus.Tests` | provider unit tests (capabilities, mapping, discovery, exception translation) | emulator round-trips under `Integration/` (Testcontainers, `[EmulatorFact]`, `Category=Emulator`); skipped unless `MESSAGINGTOOLBOX_EMULATOR_TESTS=true`, run by the `emulator` job in `ci.yml` |
+| `Providers.RabbitMQ.Tests` | provider unit tests (connection settings, mapping, management client, discovery, exception translation) | broker round-trips under `Integration/` (Testcontainers `rabbitmq:4.1-management`, `[BrokerFact]`, `Category=Emulator`), same switch and CI job as the emulator tests |
 | `Architecture.Tests` | layer dependency rules | NetArchTest — run this after adding/changing project references |
 
 Test conventions:

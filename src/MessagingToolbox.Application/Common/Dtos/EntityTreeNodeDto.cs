@@ -15,6 +15,9 @@ public sealed record EntityTreeNodeDto
 
     public required EntityKind Kind { get; init; }
 
+    /// <summary>The broker's name for the entity's flavour (e.g. <c>stream</c>); display only.</summary>
+    public string? TypeName { get; init; }
+
     public MessageSubQueue SubQueue { get; init; } = MessageSubQueue.Active;
 
     /// <summary>True for the virtual Active/Scheduled/DLQ child nodes under a message-bearing entity.</summary>
@@ -24,6 +27,24 @@ public sealed record EntityTreeNodeDto
 
     /// <summary>The entity requires sessions (as far as the provider knows); set on entity and sub-queue nodes alike.</summary>
     public bool RequiresSession { get; init; }
+
+    /// <summary>What a peek of this entity costs; set on entity and sub-queue nodes alike.</summary>
+    public PeekMode PeekMode { get; init; } = PeekMode.NonDestructive;
+
+    /// <summary>Browsing addresses this entity's messages by sequence number, whatever the connection says (ADR 24).</summary>
+    public bool HasSequenceNumbers { get; init; }
+
+    /// <summary>A peek can start at a point in time.</summary>
+    public bool CanPeekFromTime { get; init; }
+
+    /// <summary>The exchange the entity dead-letters into (routing-based brokers); null when it has none.</summary>
+    public string? DeadLetterExchange { get; init; }
+
+    /// <summary>What this entity allows beyond the connection's capabilities; set on entity and sub-queue nodes alike.</summary>
+    public EntityOperations Operations { get; init; } = EntityOperations.All;
+
+    /// <summary>Broker-specific settings of the entity, formatted by the provider; display only.</summary>
+    public IReadOnlyList<EntityProperty> Properties { get; init; } = [];
 
     public EntityRuntimeInfoDto? RuntimeInfo { get; init; }
 

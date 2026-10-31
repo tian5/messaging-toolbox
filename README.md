@@ -66,6 +66,23 @@ On the emulator, entity management (create, edit, delete) goes through the emula
 endpoint, which the hosting package passes in. If that endpoint is not reachable yet, the tree
 falls back to the AppHost-modeled entities and the management buttons show why they are off.
 
+### RabbitMQ
+
+RabbitMQ works the same way. Turn on the management plugin so the toolbox can discover queues
+and exchanges and show their counts:
+
+```csharp
+builder.AddRabbitMQ("rabbit")
+    .WithManagementPlugin()
+    .WithMessagingToolbox();
+```
+
+The tree lists queues (classic, quorum, stream) and your exchanges. Send to a queue, or to an
+exchange with a routing key. Dead-letter queues are ordinary queues bound to their dead-letter
+exchange; each message shows its death history. Outside Aspire, connect with an AMQP URI
+(`amqp://user:password@host:5672/vhost`). The management API is assumed on port 15672; append
+`;Management=http://host:port` if it is elsewhere.
+
 ### Multiple namespaces
 
 Attach as many namespaces as you like. Each `WithMessagingToolboxConnection` call adds one
@@ -121,6 +138,20 @@ The first previews focus on the Azure Service Bus emulator inside Aspire. Know t
   seen, a scheduled message is not reported when it becomes active, and a dead-letter watch
   covers the first 5000 messages.
 - **Peek limits.** One load shows at most 5000 messages.
+- **RabbitMQ has no read-only browse.** Loading a classic or quorum queue takes the messages
+  and puts them back: they are marked redelivered, invisible to consumers meanwhile, and may
+  change order. That only happens when you press Load (the UI says so); counts and live watch
+  never do it. Streams are read without side effects.
+- **RabbitMQ preview.** Explore, peek, publish, receive-and-delete, purge, settle (complete,
+  abandon, dead-letter), copy or move messages between queues, and manage queues, exchanges and
+  bindings. Streams can be read from an offset or a time and watched live. "Move all" needs the
+  `rabbitmq_shovel_management` plugin.
+  Without the management plugin only queues listed in configuration are shown.
+- **RabbitMQ held messages and dead-lettering.** Messages received with "settle later" stay
+  invisible to consumers until you settle or release them; untouched ones are released after
+  5 minutes. Dead-lettering is a broker reject, so it is offered only on queues with a
+  dead-letter exchange (otherwise RabbitMQ would discard the message) and records the broker's
+  reason (`rejected`), not a custom one. Dead-letter queues are ordinary queues in the tree.
 - **Cloud namespaces** work with connection strings (management included) but are not the focus
   of the previews; Entra ID sign-in is on the roadmap.
 
@@ -149,7 +180,7 @@ graph TD
   persists state with EF Core + SQLite; `Web` is a thin Blazor shell. See
   [docs/messagingtoolbox-architecture-guidelines.md](https://github.com/tian5/messaging-toolbox/blob/main/docs/messagingtoolbox-architecture-guidelines.md).
 - **Provider model** — every broker (cloud Azure Service Bus, the Azure Service Bus emulator,
-  later RabbitMQ/Kafka/NATS) implements `IMessagingProvider`; the UI and use cases never
+  RabbitMQ, later Kafka/NATS) implements `IMessagingProvider`; the UI and use cases never
   reference a broker SDK. Emulator quirks (the admin endpoint with the Aspire model as fallback,
   peek-sampled counts) stay inside the provider project.
 - **Capabilities** — providers declare a `ProviderCapabilities` record; every feature area and

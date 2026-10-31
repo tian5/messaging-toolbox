@@ -25,12 +25,12 @@ public sealed class GetEntityTreeQueryHandler : IRequestHandler<GetEntityTreeQue
             entities.Add(entity);
         }
 
-        bool supportsScheduling = provider.Capabilities.SupportsScheduling;
+        ProviderCapabilities capabilities = provider.Capabilities;
         List<EntityTreeNodeDto> nodes = [];
 
         foreach (MessagingEntity queue in entities.Where(entity => entity.Kind == EntityKind.Queue).OrderBy(entity => entity.Name))
         {
-            nodes.Add(ToNode(queue, SubQueueChildren(queue, supportsScheduling)));
+            nodes.Add(ToNode(queue, SubQueueChildren(queue, capabilities)));
         }
 
         foreach (MessagingEntity topic in entities.Where(entity => entity.Kind == EntityKind.Topic).OrderBy(entity => entity.Name))
@@ -38,10 +38,16 @@ public sealed class GetEntityTreeQueryHandler : IRequestHandler<GetEntityTreeQue
             List<EntityTreeNodeDto> subscriptions = entities
                 .Where(entity => entity.Kind == EntityKind.Subscription && entity.ParentPath == topic.Path)
                 .OrderBy(entity => entity.Name)
-                .Select(subscription => ToNode(subscription, SubQueueChildren(subscription, supportsScheduling)))
+                .Select(subscription => ToNode(subscription, SubQueueChildren(subscription, capabilities)))
                 .ToList();
 
             nodes.Add(ToNode(topic, subscriptions));
+        }
+
+        // Exchanges route but hold no messages, so they have no sub-queue children.
+        foreach (MessagingEntity exchange in entities.Where(entity => entity.Kind == EntityKind.Exchange).OrderBy(entity => entity.Name))
+        {
+            nodes.Add(ToNode(exchange, []));
         }
 
         return nodes;
@@ -49,20 +55,31 @@ public sealed class GetEntityTreeQueryHandler : IRequestHandler<GetEntityTreeQue
 
     // FR-2.1: active, scheduled, and dead-letter messages show as equivalent child nodes of their
     // message-bearing entity, so every state is browsable even when no counts are available. The
-    // scheduled node is capability-driven — brokers without scheduling never render it (ADR 5).
-    private static IReadOnlyList<EntityTreeNodeDto> SubQueueChildren(MessagingEntity entity, bool supportsScheduling)
+    // scheduled and dead-letter nodes are capability-driven — brokers without scheduling or a
+    // dead-letter sub-queue never render them (ADR 5). With nothing beyond active messages
+    // (RabbitMQ) an "Active" child would only repeat its entity, so the entity stays a leaf.
+    private static IReadOnlyList<EntityTreeNodeDto> SubQueueChildren(MessagingEntity entity, ProviderCapabilities capabilities)
     {
+        if (!capabilities.SupportsScheduling && !capabilities.SupportsDeadLetterSubQueue)
+        {
+            return [];
+        }
+
         List<EntityTreeNodeDto> children =
         [
             SubQueueNode(entity, MessageSubQueue.Active, "Active"),
         ];
 
-        if (supportsScheduling)
+        if (capabilities.SupportsScheduling)
         {
             children.Add(SubQueueNode(entity, MessageSubQueue.Scheduled, "Scheduled"));
         }
 
-        children.Add(SubQueueNode(entity, MessageSubQueue.DeadLetter, "DLQ"));
+        if (capabilities.SupportsDeadLetterSubQueue)
+        {
+            children.Add(SubQueueNode(entity, MessageSubQueue.DeadLetter, "DLQ"));
+        }
+
         return children;
     }
 
@@ -71,10 +88,17 @@ public sealed class GetEntityTreeQueryHandler : IRequestHandler<GetEntityTreeQue
         Name = name,
         Path = entity.Path,
         Kind = entity.Kind,
+        TypeName = entity.TypeName,
         SubQueue = subQueue,
         IsSubQueueNode = true,
         Status = entity.Status,
         RequiresSession = entity.RequiresSession,
+        PeekMode = entity.PeekMode,
+        HasSequenceNumbers = entity.HasSequenceNumbers,
+        CanPeekFromTime = entity.CanPeekFromTime,
+        DeadLetterExchange = entity.DeadLetterExchange,
+        Operations = entity.Operations,
+        Properties = entity.Properties,
         RuntimeInfo = ToRuntimeInfo(entity.RuntimeInfo),
     };
 
@@ -83,8 +107,15 @@ public sealed class GetEntityTreeQueryHandler : IRequestHandler<GetEntityTreeQue
         Name = entity.Name,
         Path = entity.Path,
         Kind = entity.Kind,
+        TypeName = entity.TypeName,
         Status = entity.Status,
         RequiresSession = entity.RequiresSession,
+        PeekMode = entity.PeekMode,
+        HasSequenceNumbers = entity.HasSequenceNumbers,
+        CanPeekFromTime = entity.CanPeekFromTime,
+        DeadLetterExchange = entity.DeadLetterExchange,
+        Operations = entity.Operations,
+        Properties = entity.Properties,
         RuntimeInfo = ToRuntimeInfo(entity.RuntimeInfo),
         Children = children,
     };
