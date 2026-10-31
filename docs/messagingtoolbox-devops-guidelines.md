@@ -29,6 +29,8 @@ implemented in `DependencyRuleTests`.
   `_build.yml` (reusable, `workflow_call`, parameterized: dotnet version, pack toggle),
   `ci.yml` (thin caller: PRs + main pushes, build & test only),
   `publish.yml` (thin caller: main pushes → prerelease, `v*` tags → stable).
+- `.github/CODEOWNERS` — `* @tian5`: the maintainer owns everything, which is what the
+  code-owner review ruleset (§9) enforces for outside PRs.
 - `Dockerfile` + `.dockerignore` at repo root.
 - `Directory.Build.props` — shared package metadata and `IsPackable=false` default.
 - `Directory.Packages.props` — central versions; Dependabot must target this.
@@ -79,6 +81,10 @@ implemented in `DependencyRuleTests`.
   builds warning-tolerant during early scaffolding if preferred.
 - Keep the pipeline fast: single build with `--no-restore` / `--no-build` chaining between
   steps; upload test results and coverage as artifacts, not gates, in Phase 1.
+- The check names `build / build` (the `build` job calling `_build.yml`) and `emulator` are
+  required status checks on `main` (§9). Renaming either job, or the reusable workflow's job,
+  means updating the ruleset in the same change, or every PR blocks on a check that never
+  reports.
 
 ---
 
@@ -93,6 +99,9 @@ implemented in `DependencyRuleTests`.
 - Only `MessagingToolbox.Aspire.Hosting` is packable-and-published in Phase 1.
   `MessagingToolbox.Abstractions` stays `IsPackable=false` but is versioned in lockstep, so
   publishing it later never creates a version mismatch with the hosting package.
+- The policy binds to the GitHub repository's ID on first use, not just its name: a recreated
+  or transferred repository needs the policy deleted and recreated on nuget.org before the
+  next push.
 - Push with `--skip-duplicate` so rerunning a failed workflow is safe.
 - Package quality bar before the first push: license expression, authors, repository URL,
   readme, icon, description, and tags set in shared props — nuget.org surfaces all of these,
@@ -101,7 +110,9 @@ implemented in `DependencyRuleTests`.
 ### Container
 
 - ghcr.io only; image name mirrors the repository path. After the first push, link the package
-  to the repo and mark it public.
+  to the repo and mark it public. The package's *Manage Actions access* must grant this
+  repository the Write role, or the `GITHUB_TOKEN` push is denied (re-add it whenever the
+  repository is recreated).
 - Both publish jobs depend on a green build job in the same workflow run; packages and images
   from one tag always come from the same commit.
 
@@ -110,6 +121,8 @@ implemented in `DependencyRuleTests`.
 - Every `v*` tag creates a GitHub Release with auto-generated notes (PR titles); keep PR
   titles meaningful — they become the changelog. Prerelease tags (`v0.1.0-preview.1`) create a
   GitHub prerelease, so they never become the repository's latest release.
+- Only the maintainer can create, move or delete `v*` tags (tag ruleset, §9): a tag is a
+  release, so nobody else can publish one.
 
 ---
 
@@ -160,9 +173,28 @@ adds secrets only to the `release` environment, never to the repository level.
 
 - Dependabot: three ecosystems — `nuget` (root, understands central package management),
   `github-actions`, `docker` — weekly, grouped into one PR per ecosystem to keep noise low.
-- Branch protection on `main`: require the CI workflow green + up-to-date branch; solo dev
-  can still self-merge.
 - Artifact retention: keep published `.nupkg` artifacts from `publish.yml` runs for traceability;
   default retention is fine otherwise.
-- Once public: add CodeQL (or equivalent) analysis — free for public repos — as a separate
-  scheduled workflow so it never gates PR velocity.
+
+### Repository governance (public repo)
+
+Settings live in GitHub, not in the repository; this list is their source of truth. Rulesets
+replace classic branch protection:
+
+| Ruleset | Target | Rules | Bypass |
+|---|---|---|---|
+| `main: PR + green CI` | default branch | PR required, squash merge only, review threads resolved; `build / build` and `emulator` checks green on an up-to-date branch; no force-push, no deletion | nobody |
+| `main: code-owner review (maintainer bypass)` | default branch | 1 approving review from a code owner (`CODEOWNERS`), stale approvals dismissed on push, the last pusher can't approve | repository admins, through a PR only |
+| `release tags v*` | `refs/tags/v*` | creation, update and deletion restricted | repository admins |
+
+- The solo maintainer still self-merges: the review ruleset is bypassed, the CI ruleset never
+  is. Outside contributors need the maintainer's approval and green CI.
+- Merging: squash only, commit title = PR title, message = PR body, so PR titles stay the
+  changelog (§5). "Update branch" and auto-merge are on; merged branches are deleted.
+- Forks: workflows from first-time contributors wait for approval (GitHub default). `ci.yml`
+  runs on `pull_request`, never `pull_request_target`, so fork runs get a read-only token and no
+  secrets; the `release` environment only accepts `main` and `v*` refs.
+- Security: secret scanning with push protection, Dependabot alerts and security updates, and
+  private vulnerability reporting are on.
+- Code scanning: CodeQL default setup (C# and GitHub Actions) — no workflow file, reports in the
+  Security tab and never gates PRs.

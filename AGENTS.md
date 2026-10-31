@@ -176,7 +176,10 @@ Three workflows under `.github/workflows/` (convention: reusable `_build.yml` + 
 Versioning is tag-driven via MinVer: `v*` git tags are the single source of truth; never edit
 version numbers in source. PR titles become release notes — keep them meaningful. Dependabot
 keeps `Directory.Packages.props`, GitHub Actions, and Docker base images up to date (weekly,
-grouped). The root `Dockerfile` is multi-stage (SDK restore from project files only → publish
+grouped). `main` is protected by rulesets (DevOps guidelines §9): changes land only as
+squash-merged PRs with green `build / build` and `emulator` checks on an up-to-date branch, outside
+PRs need a code-owner review, and only the maintainer can push `v*` tags. Renaming a CI job means
+updating the ruleset. The root `Dockerfile` is multi-stage (SDK restore from project files only → publish
 Web host → Alpine ASP.NET runtime, non-root, port 8080, writable `/app/data` volume for SQLite +
 Data Protection keys).
 
