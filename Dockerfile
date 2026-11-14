@@ -5,7 +5,7 @@
 # of source changes (DevOps guidelines §3).
 # The SDK runs on the build machine's platform and cross-compiles for the target, so multi-arch
 # builds never run the SDK under QEMU emulation (slow, and known to crash restore).
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0-alpine AS build
 ARG TARGETARCH
 WORKDIR /source
 
@@ -24,7 +24,7 @@ COPY src/ src/
 RUN dotnet publish src/MessagingToolbox.Web/MessagingToolbox.Web.csproj \
     -a $TARGETARCH --configuration Release --output /app/publish
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
+FROM mcr.microsoft.com/dotnet/aspnet:11.0-alpine AS final
 WORKDIR /app
 
 # Single HTTP port; configuration is purely environment variables so the same
